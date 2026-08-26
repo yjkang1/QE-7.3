@@ -83,6 +83,13 @@ libcuda_devxlib_veryclean:
 ###################################
 
 libmbd:
+	@if test -d ../MBD; then \
+	echo "../MBD already built - skipping submodule update."; \
+	else \
+	$(MAKE) -f extlibs_makefile libmbd_force; \
+	fi
+
+libmbd_force:
 	$(call update_submodule,external,mbd)
 	if test ! -d ../MBD; then \
         mkdir ../MBD; \
