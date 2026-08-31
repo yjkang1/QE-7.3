@@ -11,10 +11,14 @@
 # qe.sh is executed by Slurm (not sourced), so `source` here is a normal,
 # safe call into env.sh - its own internal guard only trips if env.sh
 # itself gets run directly, which this isn't doing.
-source $HOME/.config/qe/env.sh
+# source $HOME/.config/qe/env.sh
 
+module load intel/19.1.3.304
+
+ESPRESSO=/home/yjkang/projects/qe_aCBN0-7.3/bin
 export MKL_DEBUG_CPU_TYPE=5
 export MKL_CBWR=AUTO
+
 
 # total MPI ranks = nodes * ntasks-per-node = 2 * 64 = 128
 # scf.in's 8x8x8 mesh reduces to 65 irreducible k-points (checked via a
@@ -25,6 +29,5 @@ export MKL_CBWR=AUTO
 # Retune if you change the k-point mesh.
 NPOOL=64
 
-srun --mpi=pmi2 qe_aCBN0-7.3_pw.x -npool $NPOOL -inp scf.in > scf.out
-srun --mpi=pmi2 hp.x -npool $NPOOL -inp scf.in > scf.out
-
+# srun --mpi=pmi2 pw.x -npool $NPOOL -inp scf.in > scf.out
+srun --mpi=pmi2 hp.x -npool $NPOOL -inp hp.in > hp.out
