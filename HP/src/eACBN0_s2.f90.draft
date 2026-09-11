@@ -1,0 +1,679 @@
+!
+!-----------------------------------------------------------------------
+! S2 DRAFT - transplanted ACBN0 kernels for HP/src/eACBN0.f90
+!-----------------------------------------------------------------------
+!
+! NOT COMPILED.  Append to eACBN0.f90 and switch the CALL in hp_acbn0()
+! from new_ns_a0 (libpw.a) to hp_acbn0_ns_a0 only AFTER the S1 checkpoint
+! has passed, so that any later discrepancy is attributable.
+!
+! Provenance - verbatim from PW/src/new_ns_v.f90 unless noted:
+!     hp_acbn0_ns_a0    <- new_ns_a0      lines  233- 633
+!     hp_acbn0_symm_n4  <- symmetrize_n4  lines 2964-3165  (+1 bugfix, marked)
+!     hp_acbn0_orberi   <- orberi         lines 3780-3818
+!
+! Still USE ldaV: that is deliberate.  S2 proves the transplant is faithful;
+! S3 converts the bookkeeping to ldaU.  Doing both at once would make any
+! discrepancy unattributable.
+!
+! These stay BARE EXTERNAL SUBROUTINES, never module procedures.  new_ns_a0
+! and symmetrize_n4 each declare their own local TYPE occmat_4 and pass it
+! across - legal only because an external subroutine has no explicit
+! interface.  Wrapping them in a MODULE turns that into a hard type error.
+!
+! CALL write_ehub_uv is retained: it prints the same stdout table pw.x does,
+! which is what makes S0/S1/S2 comparable by grep.  It goes away in S3.
+!-----------------------------------------------------------------------
+!
+SUBROUTINE hp_acbn0_ns_a0(ns)
+
+  USE kinds,                ONLY : DP
+  USE constants,            ONLY : rytoev
+  USE ions_base,            ONLY : nat, ityp, ntyp => nsp, tau
+  USE cell_base,            ONLY : at, alat
+  USE klist,                ONLY : nks, ngk, xk
+  USE ldaV,                 ONLY : ehub_lm_max, ehub_lm, ehub_l, &
+                                   ehub_mixing, ehub_u, wfcv,    &
+                                   nwfcv, ofstv, remove_ehub_u,  &
+                                   write_ehub_uv
+  USE lsda_mod,             ONLY : lsda, current_spin, nspin, isk
+  USE wvfct,                ONLY : nbnd, wg
+  USE io_global,            ONLY : stdout
+  USE control_flags,        ONLY : gamma_only
+  USE wavefunctions,        ONLY : evc
+  USE io_files,             ONLY : nwordwfc, iunwfc, nwordwfcv, iunhubv
+  USE buffers,              ONLY : get_buffer
+  USE mp_pools,             ONLY : inter_pool_comm
+  USE mp,                   ONLY : mp_sum
+  USE becmod,               ONLY : bec_type, calbec,  &
+                                   allocate_bec_type, &
+                                   deallocate_bec_type
+  USE uspp_param,           ONLY : upf
+
+  IMPLICIT NONE
+
+  REAL(DP),    INTENT(OUT) :: ns(ehub_lm_max,ehub_lm_max,nspin,nat)
+
+  TYPE hubbard_ene_3
+     REAL(DP), ALLOCATABLE :: U(:,:,:)
+     REAL(DP), ALLOCATABLE :: J(:,:,:)
+  END TYPE hubbard_ene_3
+
+  TYPE occmat_4
+     REAL(DP), ALLOCATABLE :: O(:,:,:,:)
+     REAL(DP), ALLOCATABLE :: T(:,:,:,:)
+  END TYPE occmat_4
+
+  TYPE(bec_type)           :: proj
+
+  TYPE(hubbard_ene_3)      :: A0, HF
+
+  TYPE(occmat_4)           :: num(nbnd), n, p
+
+  REAL(DP),    ALLOCATABLE :: ehub_u_(:,:,:)
+
+  REAL(DP), EXTERNAL       :: compute_eri
+  REAL(DP)                 :: c1(6), c2(6), c3(6), c4(6)
+
+  INTEGER                  :: i, ik, ibnd, is, npw
+  INTEGER                  :: na, nt, l, m
+  INTEGER                  :: na1, na2
+  INTEGER                  :: nt1, nt2
+  INTEGER                  :: m1, m2, m3, m4
+  INTEGER                  :: l1, l2, l3, l4
+
+  CALL start_clock('acbn0_ns_a0')
+  !
+  CALL allocate_bec_type(nwfcv, nbnd, proj)
+  !
+  ALLOCATE ( n%O(ehub_lm_max,ehub_lm_max,nspin,nat) ) ; n%O = 0.0_DP
+  ALLOCATE ( p%O(ehub_lm_max,ehub_lm_max,nspin,nat) ) ; p%O = 0.0_DP
+  ALLOCATE ( A0%U(4,4,nat), A0%J(4,4,nat) )
+  ALLOCATE ( HF%U(4,4,nat), HF%J(4,4,nat) )
+  !
+  DO ik = 1, nks
+     !
+     IF ( lsda ) current_spin = isk(ik)
+     npw = ngk(ik)
+     !
+     ! projection < wfcv | evc >
+     !
+     IF ( nks > 1 ) CALL get_buffer(evc, nwordwfc, iunwfc, ik)
+     IF ( nks > 1 ) CALL get_buffer(wfcv, nwordwfcv, iunhubv, ik)
+     CALL calbec(npw, wfcv, evc, proj)
+     !
+     ! calculate the occupation matrices n
+     !
+     DO na = 1, nat
+        nt = ityp(na)
+        !
+        IF ( ehub_lm(nt) == 0 ) CYCLE
+        !
+        DO m1 = 1, ehub_lm(nt)
+        DO m2 = 1, ehub_lm(nt)
+           !
+           IF ( gamma_only ) THEN
+              DO ibnd = 1, nbnd
+                 n%O(m1,m2,current_spin,na) = &
+                 n%O(m1,m2,current_spin,na) + &
+                                wg(ibnd,ik) * &
+                  proj%r(ofstv(na)+m2,ibnd) * &
+                  proj%r(ofstv(na)+m1,ibnd)
+              ENDDO ! ibnd
+           ELSE
+              DO ibnd = 1, nbnd
+                 n%O(m1,m2,current_spin,na) = &
+                 n%O(m1,m2,current_spin,na) + &
+                                wg(ibnd,ik) * &
+             DBLE(proj%k(ofstv(na)+m2,ibnd) * &
+            CONJG(proj%k(ofstv(na)+m1,ibnd)))
+              ENDDO ! ibnd
+           ENDIF
+           !
+        ENDDO ! m2
+        ENDDO ! m1
+        !
+     ENDDO ! na
+     !
+     ! calculate the renormalized occupations N(ACBN0)
+     !
+     DO i = 1, nbnd
+        ALLOCATE ( num(i)%O(4,4,nspin,ntyp) ) ; num(i)%O = 0.0_DP
+        ALLOCATE ( num(i)%T(4,4,nspin,ntyp) ) ; num(i)%T = 0.0_DP
+     ENDDO
+     !
+     DO na = 1, nat
+        nt = ityp(na)
+        !
+        IF ( ehub_lm(nt) == 0 ) CYCLE
+        !
+        DO m = 1, ehub_lm(nt)
+           !
+           l = ehub_l(m,nt)
+           !
+           IF ( gamma_only ) THEN
+              DO ibnd = 1, nbnd
+                 num(ibnd)%O(l,l,current_spin,nt) = &
+                 num(ibnd)%O(l,l,current_spin,nt) + &
+                         proj%r(ofstv(na)+m,ibnd) * &
+                         proj%r(ofstv(na)+m,ibnd)
+              ENDDO ! ibnd
+           ELSE
+              DO ibnd = 1, nbnd
+                 num(ibnd)%O(l,l,current_spin,nt) = &
+                 num(ibnd)%O(l,l,current_spin,nt) + &
+                    DBLE(proj%k(ofstv(na)+m,ibnd) * &
+                   CONJG(proj%k(ofstv(na)+m,ibnd)))
+              ENDDO ! ibnd
+           ENDIF
+           !
+        ENDDO ! m
+        !
+     ENDDO ! na
+     !
+     DO i = 1, nbnd
+        !
+        DO nt1 = 1, ntyp
+        DO nt2 = 1, ntyp
+           !
+           IF ( upf(nt1)%psd /= upf(nt2)%psd ) CYCLE
+           !
+           num(i)%T(:,:,:,nt1) = num(i)%T(:,:,:,nt1) &
+                               + num(i)%O(:,:,:,nt2)
+           !
+        ENDDO ! na2
+        ENDDO ! na1
+        !
+     ENDDO ! i
+     !
+     DO i = 1, nbnd
+        num(i)%O = num(i)%T
+        DEALLOCATE ( num(i)%T )
+     ENDDO
+     !
+     ! calculate the renormalized occupation matrices P(ACBN0)
+     !
+     DO na = 1, nat
+        nt = ityp(na)
+        !
+        IF ( ehub_lm(nt) == 0 ) CYCLE
+        !
+        DO m1 = 1, ehub_lm(nt)
+           !
+           l1 = ehub_l(m1,nt)
+           !
+        DO m2 = 1, ehub_lm(nt)
+           !
+           l2 = ehub_l(m2,nt)
+           !
+           IF ( gamma_only ) THEN
+              DO ibnd = 1, nbnd
+                 p%O(m1,m2,current_spin,na) = &
+                 p%O(m1,m2,current_spin,na) + &
+                         num(ibnd)%O(l1,l2,   &
+                           current_spin,nt) * &
+                                wg(ibnd,ik) * &
+                  proj%r(ofstv(na)+m2,ibnd) * &
+                  proj%r(ofstv(na)+m1,ibnd)
+              ENDDO ! ibnd
+           ELSE
+              DO ibnd = 1, nbnd
+                 p%O(m1,m2,current_spin,na) = &
+                 p%O(m1,m2,current_spin,na) + &
+                         num(ibnd)%O(l1,l2,   &
+                           current_spin,nt) * &
+                                wg(ibnd,ik) * &
+             DBLE(proj%k(ofstv(na)+m2,ibnd) * &
+            CONJG(proj%k(ofstv(na)+m1,ibnd)))
+              ENDDO ! ibnd
+           ENDIF
+           !
+        ENDDO ! m2
+        ENDDO ! m1
+        !
+     ENDDO ! na
+     !
+     DO i = 1, nbnd
+        DEALLOCATE ( num(i)%O )
+     ENDDO
+
+  ENDDO ! ik
+
+  CALL deallocate_bec_type(proj)
+
+  CALL mp_sum(n%O, inter_pool_comm)
+  CALL mp_sum(p%O, inter_pool_comm)
+
+  IF ( nspin == 1 ) n%O = 0.5_DP * n%O
+  !
+  CALL hp_acbn0_symm_n4(n)
+  !
+  ns = 0.0_DP
+  !
+  ns = n%O
+  !
+  DEALLOCATE (n%O)
+  !
+  IF ( nspin == 1 ) p%O = 0.5_DP * p%O
+  !
+  CALL hp_acbn0_symm_n4(p)
+  !
+  ! calculate ACBN0 U & J
+  !
+  A0%U = 0.0_DP ; A0%J = 0.0_DP
+  !
+  DO na = 1, nat
+     nt = ityp(na)
+     !
+     IF ( ehub_lm(nt) == 0 ) CYCLE
+     !
+     l1 = 0
+     DO m1 = 1, ehub_lm(nt)
+        CALL hp_acbn0_orberi(ehub_l(m1,nt), l1)
+        CALL pao_3g(upf(nt)%psd, ehub_l(m1,nt), c1)
+        !
+     l2 = 0
+     DO m2 = 1, ehub_lm(nt)
+        CALL hp_acbn0_orberi(ehub_l(m2,nt), l2)
+        CALL pao_3g(upf(nt)%psd, ehub_l(m2,nt), c2)
+        !
+     l3 = 0
+     DO m3 = 1, ehub_lm(nt)
+        IF ( ehub_l(m3,nt) /= ehub_l(m1,nt) ) CYCLE
+        CALL hp_acbn0_orberi(ehub_l(m3,nt), l3)
+        CALL pao_3g(upf(nt)%psd, ehub_l(m3,nt), c3)
+        !
+     l4 = 0
+     DO m4 = 1, ehub_lm(nt)
+        IF ( ehub_l(m4,nt) /= ehub_l(m2,nt) ) CYCLE
+        CALL hp_acbn0_orberi(ehub_l(m4,nt), l4)
+        CALL pao_3g(upf(nt)%psd, ehub_l(m4,nt), c4)
+        !
+        IF ( ehub_l(m1,nt) == 1 .AND. ehub_l(m2,nt) == 1 ) THEN
+              A0%U(ehub_l(m1,nt),ehub_l(m2,nt),na)  = &
+              A0%U(ehub_l(m1,nt),ehub_l(m2,nt),na)  + &
+                  (p%O(m3,m1,1,na)*p%O(m4,m2,2,na)  + &
+                   p%O(m3,m1,2,na)*p%O(m4,m2,1,na)) * &
+                          compute_eri(l3,l1,l4,l2,    &
+                    tau(:,na)*alat,tau(:,na)*alat,    &
+                    tau(:,na)*alat,tau(:,na)*alat,    &
+                                      c3,c1,c4,c2)
+        ELSE
+              A0%U(ehub_l(m1,nt),ehub_l(m2,nt),na)  = &
+              A0%U(ehub_l(m1,nt),ehub_l(m2,nt),na)  + &
+                  (p%O(m3,m1,1,na)*p%O(m4,m2,1,na)  + &
+                   p%O(m3,m1,2,na)*p%O(m4,m2,2,na)  + &
+                   p%O(m3,m1,1,na)*p%O(m4,m2,2,na)  + &
+                   p%O(m3,m1,2,na)*p%O(m4,m2,1,na)) * &
+                          compute_eri(l3,l1,l4,l2,    &
+                    tau(:,na)*alat,tau(:,na)*alat,    &
+                    tau(:,na)*alat,tau(:,na)*alat,    &
+                                      c3,c1,c4,c2)
+              A0%J(ehub_l(m1,nt),ehub_l(m2,nt),na)  = &
+              A0%J(ehub_l(m1,nt),ehub_l(m2,nt),na)  + &
+                  (p%O(m3,m1,1,na)*p%O(m4,m2,1,na)  + &
+                   p%O(m3,m1,2,na)*p%O(m4,m2,2,na)) * &
+                          compute_eri(l3,l2,l4,l1,    &
+                    tau(:,na)*alat,tau(:,na)*alat,    &
+                    tau(:,na)*alat,tau(:,na)*alat,    &
+                                      c3,c2,c4,c1)
+        ENDIF
+        !
+     ENDDO ! m4
+     ENDDO ! m3
+     ENDDO ! m2
+     ENDDO ! m1
+     !
+  ENDDO ! na
+  !
+  DEALLOCATE (p%O)
+  !
+  HF%U = 0.0_DP ; HF%J = 0.0_DP
+  !
+  DO na = 1, nat
+     nt = ityp(na)
+     !
+     IF ( ehub_lm(nt) == 0 ) CYCLE
+     !
+     DO m1 = 1, ehub_lm(nt)
+     DO m2 = 1, ehub_lm(nt)
+        !
+        IF ( m1 == m2 ) THEN
+             HF%U(ehub_l(m1,nt),ehub_l(m2,nt),na) = &
+             HF%U(ehub_l(m1,nt),ehub_l(m2,nt),na) + &
+                    ns(m1,m1,1,na)*ns(m2,m2,2,na) + &
+                    ns(m1,m1,2,na)*ns(m2,m2,1,na)
+        ELSE
+             HF%U(ehub_l(m1,nt),ehub_l(m2,nt),na) = &
+             HF%U(ehub_l(m1,nt),ehub_l(m2,nt),na) + &
+                    ns(m1,m1,1,na)*ns(m2,m2,1,na) + &
+                    ns(m1,m1,2,na)*ns(m2,m2,2,na) + &
+                    ns(m1,m1,1,na)*ns(m2,m2,2,na) + &
+                    ns(m1,m1,2,na)*ns(m2,m2,1,na)
+ 
+             HF%J(ehub_l(m1,nt),ehub_l(m2,nt),na) = &
+             HF%J(ehub_l(m1,nt),ehub_l(m2,nt),na) + &
+                    ns(m1,m1,1,na)*ns(m2,m2,1,na) + &
+                    ns(m1,m1,2,na)*ns(m2,m2,2,na)
+        ENDIF
+        !
+     ENDDO ! m2
+     ENDDO ! m1
+     !
+  ENDDO ! na
+  !
+  ALLOCATE (ehub_u_(nat,ehub_lm_max,ehub_lm_max)) ; ehub_u_ = 0.0_DP
+  !
+  DO na = 1, nat
+     nt = ityp(na)
+     !
+     IF ( ehub_lm(nt) == 0 ) CYCLE
+     !
+     DO m1 = 1, ehub_lm(nt)
+     DO m2 = 1, ehub_lm(nt)
+        !
+        IF ( ehub_l(m1,nt) == 1 .AND. ehub_l(m2,nt) == 1 ) THEN
+           ehub_u_(na,m1,m2) =                          &
+                 A0%U(ehub_l(m1,nt),ehub_l(m2,nt),na) / &
+                 HF%U(ehub_l(m1,nt),ehub_l(m2,nt),na) * &
+                      remove_ehub_u(nt,ehub_l(m1,nt)) * &
+                      remove_ehub_u(nt,ehub_l(m2,nt))
+        ELSE
+           ehub_u_(na,m1,m2) =                          &
+                (A0%U(ehub_l(m1,nt),ehub_l(m2,nt),na) / &
+                 HF%U(ehub_l(m1,nt),ehub_l(m2,nt),na) - &
+                 A0%J(ehub_l(m1,nt),ehub_l(m2,nt),na) / &
+                 HF%J(ehub_l(m1,nt),ehub_l(m2,nt),na))* &
+                      remove_ehub_u(nt,ehub_l(m1,nt)) * &
+                      remove_ehub_u(nt,ehub_l(m2,nt))
+        ENDIF
+        !
+        ehub_u(na,m1,m2) =                               &
+              (1.0_DP - ehub_mixing)*ehub_u (na,m1,m2) + &
+              (         ehub_mixing)*ehub_u_(na,m1,m2)
+        !
+     ENDDO ! m2
+     ENDDO ! m1
+     !
+  ENDDO ! na
+  !
+  DO na1 = 1, nat
+     nt1 = ityp(na1)
+     !
+     IF ( ehub_lm(nt1) == 0 ) CYCLE
+     !
+     DO m1 = 1, ehub_lm(nt1)
+     DO m2 = m1, ehub_lm(nt1)
+        !
+        ehub_u(na1,m1,m2) = 0.5D0 * (ehub_u(na1,m1,m2) + &
+                                     ehub_u(na1,m2,m1))
+        !
+        ehub_u(na1,m2,m1) = ehub_u(na1,m1,m2)
+        !
+     ENDDO
+     ENDDO
+     !
+  ENDDO
+  !
+  DEALLOCATE ( ehub_u_ )
+  DEALLOCATE ( A0%U, A0%J )
+  DEALLOCATE ( HF%U, HF%J )
+
+  CALL write_ehub_uv
+
+  CALL stop_clock('acbn0_ns_a0')
+
+  RETURN
+
+END SUBROUTINE hp_acbn0_ns_a0
+!
+SUBROUTINE hp_acbn0_symm_n4( n )
+
+  USE kinds,                ONLY : DP
+  USE ions_base,            ONLY : nat, ityp, ntyp => nsp
+  USE ldaV,                 ONLY : ehub_lm, ehub_l, ehub_lm_max, &
+                                   ehub_nn_vect, ehub_nn_dim,    &
+                                   ehub_csize, ehub_nnnc
+  USE lsda_mod,             ONLY : nspin
+  USE symm_base,            ONLY : d1, d2, d3, nsym, irt
+
+  IMPLICIT NONE
+
+  TYPE occmat_4
+     REAL(DP), ALLOCATABLE :: O(:,:,:,:)
+     REAL(DP), ALLOCATABLE :: T(:,:,:,:)
+  END TYPE occmat_4
+
+  TYPE(occmat_4), INTENT(INOUT) :: n
+
+  INTEGER                       :: is, isym, l, m, nt
+  INTEGER                       :: na1, na2
+  INTEGER                       :: nt1, nt2
+  INTEGER                       :: m1, m2, m3, m4
+  INTEGER                       :: m1_, m2_, m3_, m4_
+  INTEGER                       :: temp, l_separation(5,ntyp)
+
+  ALLOCATE (n%T(ehub_lm_max,ehub_lm_max,nspin,nat)) ; n%T = 0.0_DP
+
+  DO nt = 1, ntyp
+     !
+     ! BUGFIX vs PW/src/new_ns_v.f90:2993 (Finding #1 of logs/new_ns_v_review.md).
+     ! Without this guard a type carrying no Hubbard manifold has ehub_l(1,nt)=0,
+     ! and the next line writes l_separation(0,nt) - one element BEFORE the array.
+     ! Dormant for NiO (all three types are Hubbard-active); fires the moment a
+     ! spectator species is added.
+     !
+     IF ( ehub_lm(nt) == 0 ) CYCLE
+     !
+     temp = ehub_l(1,nt)
+     l_separation(ehub_l(1,nt),nt) = 1
+     !
+     DO m = 2, ehub_lm(nt)
+        !
+        IF ( ehub_l(m,nt) /= temp ) THEN
+           temp = ehub_l(m,nt)
+           l_separation(ehub_l(m,nt),nt) = m
+        ENDIF
+        !
+     ENDDO
+     !
+  ENDDO
+  !
+  DO is = 1, nspin
+     !
+     DO na1 = 1, nat
+        nt1 = ityp(na1)
+        !
+        IF ( ehub_lm(nt1) == 0 ) CYCLE
+        !
+        DO m1 = 1, ehub_lm(nt1)
+           m1_ = m1 - l_separation(ehub_l(m1,nt1),nt1) + 1
+           !
+        DO m2 = 1, ehub_lm(nt1)
+           m2_ = m2 - l_separation(ehub_l(m2,nt1),nt1) + 1
+           !
+           DO isym = 1, nsym
+              !
+              na2 = irt(isym, na1)
+              !
+              DO m3 = 1, ehub_lm(nt1)
+                 IF ( ehub_l(m1,nt1) /= ehub_l(m3,nt1) ) CYCLE
+                 m3_ = m3 - l_separation(ehub_l(m3,nt1),nt1) + 1
+                 !
+              DO m4 = 1, ehub_lm(nt1)
+                 IF ( ehub_l(m2,nt1) /= ehub_l(m4,nt1) ) CYCLE
+                 m4_ = m4 - l_separation(ehub_l(m4,nt1),nt1) + 1
+                 !
+                 IF ( ehub_l(m1,nt1) == 1 .AND. ehub_l(m2,nt1) == 1 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                        n%O(m3,m4,is,na2) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 1 .AND. ehub_l(m2,nt1) == 2 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                        n%O(m3,m4,is,na2) * &
+                                         d1(m4_,m2_,isym) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 1 .AND. ehub_l(m2,nt1) == 3 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                        n%O(m3,m4,is,na2) * &
+                                         d2(m4_,m2_,isym) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 1 .AND. ehub_l(m2,nt1) == 4 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                        n%O(m3,m4,is,na2) * &
+                                         d3(m4_,m2_,isym) / &
+                                                   (nsym)
+  
+                 ELSE IF ( ehub_l(m1,nt1) == 2 .AND. ehub_l(m2,nt1) == 1 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d1(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 2 .AND. ehub_l(m2,nt1) == 2 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d1(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) * &
+                                         d1(m4_,m2_,isym) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 2 .AND. ehub_l(m2,nt1) == 3 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d1(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) * &
+                                         d2(m4_,m2_,isym) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 2 .AND. ehub_l(m2,nt1) == 4 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d1(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) * &
+                                         d3(m4_,m2_,isym) / &
+                                                   (nsym)
+
+                 ELSE IF ( ehub_l(m1,nt1) == 3 .AND. ehub_l(m2,nt1) == 1 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d2(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 3 .AND. ehub_l(m2,nt1) == 2 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d2(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) * &
+                                         d1(m4_,m2_,isym) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 3 .AND. ehub_l(m2,nt1) == 3 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d2(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) * &
+                                         d2(m4_,m2_,isym) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 3 .AND. ehub_l(m2,nt1) == 4 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d2(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) * &
+                                         d3(m4_,m2_,isym) / &
+                                                   (nsym)
+
+                 ELSE IF ( ehub_l(m1,nt1) == 4 .AND. ehub_l(m2,nt1) == 1 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d3(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 4 .AND. ehub_l(m2,nt1) == 2 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d3(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) * &
+                                         d1(m4_,m2_,isym) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 4 .AND. ehub_l(m2,nt1) == 3 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d3(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) * &
+                                         d2(m4_,m2_,isym) / &
+                                                   (nsym)
+                 ELSE IF ( ehub_l(m1,nt1) == 4 .AND. ehub_l(m2,nt1) == 4 ) THEN
+                    n%T(m1,m2,is,na1) = n%T(m1,m2,is,na1) + &
+                                         d3(m3_,m1_,isym) * &
+                                        n%O(m3,m4,is,na2) * &
+                                         d3(m4_,m2_,isym) / &
+                                                   (nsym)
+                 ELSE
+                    CALL errore('new_ns_v','angular momentum not implemented',1)
+                 ENDIF
+                 !
+              ENDDO ! m4
+              ENDDO ! m3
+              !
+           ENDDO ! isym
+           !
+        ENDDO ! m2
+        ENDDO ! m1
+        ! 
+     ENDDO ! na1
+     !
+  ENDDO ! is
+  !
+  DO na1 = 1, nat
+     nt1 = ityp(na1)
+     !
+     IF ( ehub_lm(nt1) == 0 ) CYCLE
+     !
+     DO is = 1, nspin
+        !
+        DO m1 = 1, ehub_lm(nt1)
+        DO m2 = m1, ehub_lm(nt1)
+           !
+           n%T(m1,m2,is,na1) = 0.5D0 * (n%T(m1,m2,is,na1) + &
+                                        n%T(m2,m1,is,na1))
+           !
+           n%T(m2,m1,is,na1) = n%T(m1,m2,is,na1)
+           !
+        ENDDO
+        ENDDO
+        !
+     ENDDO
+     !
+  ENDDO
+  !
+  n%O = n%T
+  DEALLOCATE (n%T)
+
+END SUBROUTINE hp_acbn0_symm_n4
+!
+SUBROUTINE hp_acbn0_orberi(ehub_l, eri_l)
+
+  ! ehub_l = 1: s orbital [eri_l = 1(s)]
+  ! ehub_l = 2: p orbital [eri_l = 2(pz), 3(px), 4(py)]
+  ! ehub_l = 3: d orbital [eri_l = 5(dz^2-r^2), 6(dxz), 7(dyz), 8(dx^2-y^2),
+  ! 9(dxy)]
+
+  IMPLICIT NONE
+
+  INTEGER, INTENT(IN)    :: ehub_l
+  INTEGER, INTENT(INOUT) :: eri_l
+
+  IF (ehub_l == 1) THEN
+     eri_l = 1
+  ELSEIF (ehub_l == 2) THEN
+     IF (eri_l == 2) THEN
+        eri_l = 3
+     ELSEIF (eri_l == 3) THEN
+        eri_l = 4
+     ELSE
+        eri_l = 2
+     ENDIF
+  ELSEIF (ehub_l == 3) THEN
+     IF (eri_l == 5) THEN
+        eri_l = 6
+     ELSEIF (eri_l == 6) THEN
+        eri_l = 7
+     ELSEIF (eri_l == 7) THEN
+        eri_l = 8
+     ELSEIF (eri_l == 8) THEN
+        eri_l = 9
+     ELSE
+        eri_l = 5
+     ENDIF
+  ENDIF
+
+  RETURN
+
+END SUBROUTINE hp_acbn0_orberi

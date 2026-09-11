@@ -1,0 +1,252 @@
+================================================================================
+ 260904-eacbn0-report   --   session log
+ Task: convert the eACBN0/hp.x validation report from Markdown to LaTeX,
+       building the TeX toolchain in a fresh micromamba environment.
+================================================================================
+
+0. STARTING POINT
+   The transplant itself was finished in the previous session (see
+   /home/yjkang/projects/qe_aCBN0-7.3/logs/260901-eacbn0-hpx.txt, 1027 lines).
+   Deliverable: HP/src/eACBN0.f90, +U and +V both on stock QE ldaU bookkeeping,
+   regression 7 passed / 0 failed.  This session is documentation only --- no
+   Fortran was changed, no QE jobs were submitted.
+
+1. ENVIRONMENT
+   micromamba binary : /home/yjkang/bin/micromamba
+   MAMBA_ROOT_PREFIX : /home/yjkang/micromamba
+   new env           : /home/yjkang/micromamba/envs/tex        (~445 MB)
+     micromamba create -y -n tex -c conda-forge texlive-core ghostscript
+     micromamba install -y -n tex -c conda-forge tectonic
+
+   NOTE / gotcha: conda-forge `texlive-core` ships the BINARIES ONLY.
+     kpsewhich finds 0 .sty files and there are no .fmt files, so pdflatex
+     cannot even start.  Confirmed:
+        find $ENV/share -name "*.sty" | wc -l   ->  0
+     Rather than bootstrap a texmf tree with tlmgr, installed `tectonic`
+     (0.17.0) into the same env.  Tectonic is a single binary that carries the
+     full TeX Live package set, fetches only what a document uses, caches it
+     under ~/.cache/Tectonic, and does its own multi-pass.  This is the simple
+     way; the first compile is slow (package download), later ones are fast.
+
+   Existing env `eacbn0` (1.8 GB, poppler + Qt) was left untouched.
+
+2. VERIFICATION PASS  (done BEFORE writing any LaTeX)
+   The markdown report was not transcribed.  Every claim was re-derived from
+   the actual artefacts, and four of them turned out to be stale or wrong:
+
+   (a) eACBN0.f90 size.
+       md said "3763 lines, 15 subroutines".
+       actual: 4066 lines, 1 module + 20 SUBROUTINE statements.
+
+   (b) Static-faithfulness claim.
+       md said "2472 code lines, five differences" -- not reproducible; the
+       per-routine table in the same document summed to 2079, not 2472.
+       Rebuilt the measurement properly.  Script:
+         scratchpad/normdiff2.py  (statement extraction + rename map)
+         scratchpad/normdiff3.py  (stage-2 canonicalisation + residual dump)
+       Procedure: join Fortran continuations into whole statements; strip
+       comments/blanks; split each routine at its first executable statement
+       and keep only the body; collapse ~30 mechanical renames to common
+       tokens; then canonicalise the four INTENDED systematic edits
+       (m-index collapse ehub_l(m,nt)->Hubbard_l(nt)+1, clock labels, dropped
+       SCF mixing, dropped convergence short-circuit).
+       RESULT:
+         hp_acbn0_ns_a0     144 stmts   2 diff   remove_ehub_u factors omitted
+         hp_acbn0_orberi     20          0
+         hp_acbn0_ns_e0_1   436          2       remove_ehub_v factors omitted
+         hp_acbn0_ns_v       81          0
+         hp_acbn0_symm_n4    76          1       bug-4 guard
+         hp_acbn0_symm_n4m   83          1       bug-4 guard
+         hp_acbn0_symm_n5   147          2       bug-4 + bug-3 guards
+         TOTAL              987          8       = 4 distinct edits
+       This is the number that went into the LaTeX.  It is reproducible:
+         python3 scratchpad/normdiff3.py
+
+   (c) Runtime cost.
+       md said "~12 s on 128 cores".  Actual, from the final.out timing blocks:
+         acbn0 = 1 :  hp_acbn0  2.59 s CPU / 2.68 s WALL   (NiO_dual)
+         acbn0 = 2 :  hp_acbn0 19.13 s CPU                  (NiO_dual_v)
+         MnO V3    :  hp_acbn0  4.04 s CPU
+       Report now says 2.6 s / 19.3 s.
+
+   (d) V(Ni-Ni) and V(O-O) values.
+       md gave single values 1.4359 / 0.8741.  The actual table has a further
+       small splitting within each shell: 1.4359/1.4357 at 2.9020 A and
+       1.4242/1.4244 at 2.9254 A.  Report now shows both.
+
+   (e) GaAs refusal text.
+       md paraphrased it as a multi-channel refusal.  The actual message from
+       _final_check/eo.498000 is about the MISSING ldaU manifold (their input
+       declares the manifold via ehub_l_choice, no HUBBARD card).  The
+       multi-channel obstacle is the deeper reason, not the proximate one.
+       Report now states both, in that order.
+
+   TRAP AVOIDED (again): the first V-table extractor used '^V\[' which matches
+   nothing -- awk emitted 0 lines and diff duly reported "IDENTICAL".  Caught
+   by printing the line count next to every verdict.  Correct anchor is
+   'V[atom i', and the converged block is the LAST one in the file.
+
+3. NUMBERS CONFIRMED AGAINST THE ARTEFACTS
+   MnO   example/MnO.acbn0.out vs MnO_ref_v3/hp.out :
+         28 blocks, 168/168 lines, empty diff.
+         MnA 5.2344  MnB 5.2344  O 3.4161  Mn-O 2.9031 / 2.9042
+   NiO   V3b, one-shot on the stock DFPT ground state (NiO_dual_v):
+         Ni 10.5455 (occ 8.4628), O 4.2717 (occ 5.1125)
+         V(Ni-O)  3.1859 @ 2.0603 A
+         V(Ni-Ni) 1.4359/1.4357 @ 2.9020 A ; 1.4242/1.4244 @ 2.9254 A
+         V(O-O)   0.8741 @ 2.9020 A ; 0.8671 @ 2.9254 A
+         nnnc = 19
+   NiO   DFPT, same ground state (NiO/NiO.Hubbard_parameters.dat):
+         Ni 3d 6.7427   O 2p 7.3243
+   NiO   self-consistent ACBN0 (NiO_acbn0)   : 9.2501 / 9.2509 / 4.2471
+   NiO   self-consistent eACBN0+V (NiO_acbn0_v): 7.7065 / 2.6538
+   NiO   cross-kernel check (NiO_type2_nn0)  : 9.2501 / 9.2509 / 4.2471, identical
+   GaAs  smoke (GaAs_smoke): U[s,s] 0.9709, U[s,p] 0.5808, U[p,p] 0.3441
+   regression (_final_check/eo.498000): 7 passed, 0 failed
+
+4. NEW RESULT THIS SESSION -- independent check of the neighbour table
+   Stage V3 replaced the fork's ldaV neighbour bookkeeping with our own
+   MODULE hp_acbn0_nn, so "agrees with pw.x" is a weaker check than usual.
+   Reproduced the table from scratch in Python from alat/at/tau alone:
+     alat 9.4728 bohr, a(i) from NiO/scf.out, tau from the same file
+     shells: 2.0603 (Ni-O) | 2.9020 (Ni-Ni, O-O) | 2.9254 (Ni-Ni, O-O)
+             | 3.5398 (Ni-O) | 3.5781 (Ni-O) | 4.1206 | 4.5922
+     cutoff 3.0 A -> 18 distinct occupied cells, home cell EMPTY
+                  -> nnnc = 18 + 1 = 19
+   hp.x prints "nnnc = 19".  Independent agreement, from geometry only.
+   Also confirms the cutoff is not on a knife edge: 0.61 A gap to the next
+   shell (2.9254 -> 3.5398).
+
+5. DELIVERABLE
+   /home/yjkang/Machine/claude.code/yjkang/260904-eacbn0-report/report.tex
+   /home/yjkang/Machine/claude.code/yjkang/260904-eacbn0-report/report.pdf
+   copied alongside the markdown at
+   /home/yjkang/projects/qe_aCBN0-7.3/logs/
+
+   11 sections; 3 TikZ figures drawn from scratch (no external images):
+     Fig 1  the two ldaV init paths and why hp.x only walks one of them
+     Fig 2  the ten-rung validation ladder, +U and +V side by side
+     Fig 3  pgfplots bar chart, ACBN0 vs DFPT vs eACBN0+V
+   Rebuild with:
+     /home/yjkang/micromamba/envs/tex/bin/tectonic report.tex
+
+6. NOT DONE (unchanged from the previous session, still open)
+   - background channels (Hubbard_l2 / offsetU_back) so multi-channel
+     manifolds such as GaAs Ga 4s+4p run on the +V branch under ldaU
+   - a &INPUTHP tag for remove_ehub_u
+   Neither was started; both need the operator's go-ahead.
+
+================================================================================
+ PART 2  --  STAGE V4: BACKGROUND CHANNELS  (same session, later)
+ Task: "go ahead and do the background channels".
+================================================================================
+
+7. WHAT V4 IS
+   S3/V3 moved both branches onto stock ldaU, at the price of ONE Hubbard
+   channel per atomic type: ehub_l(m,nt) was collapsed to Hubbard_l(nt)+1 and
+   multi-channel types were refused.  V4 removes that restriction.
+
+   The key finding: ldaU ALREADY holds the manifold in the shape the kernels
+   want.  init_hubbard (PW/src/ldaU.f90:290-320) builds ll(m,nt), which labels
+   the concatenated manifold in the SAME order ldaV uses (Hubbard_l, then
+   Hubbard_l2, then Hubbard_l3).  Map:
+        ehub_lm(nt)    <-> ldim_u(nt)          -> lm(nt)
+        ehub_lm_max    <-> ldmx_tot            -> lm_max
+        ehub_l(m,nt)   <-> ll(m,nt) + 1        -> lch(m,nt)
+        ofstv(na)+m    <-> three-way           -> ofs(m,na)
+   Only the last is genuinely missing, because ldaU stores the PROJECTORS in
+   up to three blocks (offsetU / offsetU_back / offsetU_back1) rather than
+   contiguously.  New MODULE hp_acbn0_man builds it, following
+   force_hub.f90:1060-1071 and copy_U_wfc (ldaU.f90:604-620):
+        m <=   2*l+1       -> offsetU(na)       + m
+        m <= 2*(l+l2+1)    -> offsetU_back(na)  + m -   (2*l+1)
+        otherwise, backall -> offsetU_back1(na) + m - 2*(l+l2+1)
+
+   XML round-trip checked with the SAME criterion that found bugs 1-3:
+   Hubbard_l2/l3/U2/backall are passed at pw_restart_new.f90:1322 and read at
+   qexsd_copy.f90:434-441, and init_hubbard re-runs on hp.x's read path.  A
+   background channel is ACTIVE only when Hubbard_U2 /= 0 (ldaU.f90:249), so
+   the HUBBARD card must give it a nonzero value; 0.0001 eV is enough.
+
+8. HOW THE 225 m-INDICES WERE RESTORED (scratchpad/restore_m.py)
+   Undoing the collapse means putting the right m back at 261 sites.  Used the
+   fork as an ORACLE rather than doing it by hand: align our routine with
+   new_ns_v.f90 statement by statement; wherever an aligned fork line carries
+   ehub_l(mX,nt) and ours carries lch(nt), splice the index back -- but ONLY
+   when the type argument matches AND the occurrence counts agree.
+      215 sites resolved automatically
+       10 flagged  -> exactly the sites where an intended edit had broken the
+                      alignment; done by hand against the fork.
+
+   BUG CAUGHT BY THAT CHECK.  One of the ten was
+        fork:  IF ( ehub_l(m1,nt) == 1 .AND. ehub_l(m2,nt) == 1 ) THEN
+        V3:    IF ( lch(nt) == 1 ) THEN
+   V3's simplification is a tautology for one channel and WRONG once m1 and m2
+   can sit in different channels.  A first version of the script silently
+   skipped it: the guard meant to protect assignments (lch\(nt\)\s*=) also
+   matched the comparison (lch(nt) ==).  Fixed with a negative lookahead.
+   Same class of trap as everything else in this project.
+
+9. SELF-INFLICTED BUG, CAUGHT BY ITS OWN GUARD
+   hp_acbn0_build_man ends by asserting every manifold state landed on a real
+   wfcU column (1 <= ofs(m,na) <= nwfcU).  First run: fired on EVERY case.
+   Cause: the blanket rewrite of offsetU(X)+Y -> ofs(Y,X) had also rewritten
+   the module's OWN definition of the map, into
+        ofs(m,na) = ofs(m,na)
+   so ofs stayed 0 for every main channel.  Without the assertion this would
+   not have crashed - every projection would have silently read wfcU column 0.
+   Exactly the failure mode of bugs 3 and 4, which is why the guard exists.
+   (Note: the diagnostic WRITEs were lost to Fortran output buffering when
+   MPI_Abort fired; putting the numbers into the errore message string is the
+   reliable way to get them out.)
+
+10. ALSO RELAXED
+   HP/src/hp_readin.f90:174 -- stock hp.x refuses is_hubbard_back outright
+   ("Two (or more) Hubbard channels per atomic type is not implemented").
+   That is a DFPT limitation, not an ACBN0 one; now guarded by acbn0 == 0.
+   Backup: hp_readin.f90.v3bak.  This is the 4th stock guard relaxed, after
+   the HUBBARD-card, tetrahedra and lda_plus_u_kind ones.
+
+11. STATIC FAITHFULNESS, RE-MEASURED (scratchpad/normdiff4.py)
+   Now a STRICTLY STRONGER test than V3's: the canonicaliser no longer
+   collapses the m index, so ehub_l(m1,nt) must match lch(m1,nt) literally.
+        hp_acbn0_ns_a0     176 stmts   0 diff
+        hp_acbn0_orberi     25         6   dummy arg renamed lp1 (cosmetic)
+        hp_acbn0_ns_e0_1   577         8   stop_acbn0 short-circuit dropped
+        hp_acbn0_ns_v      103         0
+        hp_acbn0_symm_n4    86         1   bug-4 guard
+        hp_acbn0_symm_n4m  104         1   bug-4 guard
+        hp_acbn0_symm_n5   174         2   bug-4 + bug-3 guards
+        TOTAL             1245        18   in 3 classes, all intended
+   ZERO index mismatches across all 225 restored indices.  Two kernels at 0.
+
+12. RESULTS  (job 510354, _final_check/qe_v4.sh)
+   ==================== 15 passed, 0 failed ====================
+   - all six single-channel cases: values unchanged AND eACBN0_hub.dat
+     parameter blocks byte-identical to the V3 snapshots (v3_hub.dat)
+   - MnO still 168/168 identical to example/MnO.acbn0.out
+   - GaAs_v4 (NEW): Ga 4s+4p, As 4s+4p on ldaU
+        hp.x == our pw.x, 204/204 lines identical
+        U[s,s] 0.9709   U[s,p] 0.5808   U[p,p] 0.3441
+        manifold printed as "sp", ldim_u = 1+3 = 4, cost 0.27 s CPU
+        -> identical to the numbers the old V2 (ldaV) build produced
+
+   NOTE on the regression script: the first version compared V3 vs V4 with the
+   "V[atom i" extractor, which returns NOTHING for acbn0=1 runs -- two empty
+   streams diff clean and "PASS" vacuously.  Caught by printing the line count.
+   Replaced with a comparison of the eACBN0_hub.dat parameter block plus a
+   hard requirement that it be non-empty.
+
+13. FILE STATE
+   HP/src/eACBN0.f90   4234 lines, 2 modules, 22 subroutines, 1 function
+   new: MODULE hp_acbn0_man (lm / lch / ofs / hp_acbn0_manlab)
+   the 9 duplicated lm/lch fill blocks in the kernels are gone, replaced by
+   one USE of that module
+   backups: eACBN0.f90.v3bak, hp_readin.f90.v3bak
+
+14. STILL OPEN (unchanged)
+   - remove_ehub_u has no route into hp.x (input-only, not in the XML); needs
+     an &INPUTHP tag.  Their GaAs input uses it.
+   - the authors' GaAs is noncollinear + spin-orbit, which dispatches to
+     new_ns_e0_nc_1 (~2300 lines, not transplanted), so their exact numbers
+     stay unreachable.

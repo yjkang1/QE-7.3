@@ -27,7 +27,7 @@ SUBROUTINE hp_readin()
                                skip_equivalence_q, tmp_dir_save, niter_max, dist_thr,  &
                                disable_type_analysis, docc_thr, num_neigh, lmin, rmax, &
                                nmix, nq1, nq2, nq3, alpha_mix, start_q, last_q, maxter, &
-                               determine_q_mesh_only
+                               determine_q_mesh_only, acbn0, nn_distance
   USE paw_variables,    ONLY : okpaw
   !
   IMPLICIT NONE
@@ -44,7 +44,7 @@ SUBROUTINE hp_readin()
                          niter_max, alpha_mix, nmix, compute_hp, perturb_only_atom,   &
                          start_q, last_q, sum_pertq, ethr_nscf, num_neigh, lmin,      &
                          determine_num_pert_only, disable_type_analysis, docc_thr,    &
-                         determine_q_mesh_only
+                         determine_q_mesh_only, acbn0, nn_distance
   !
   ! Note: meta_ionode is a single processor that reads the input
   !       Data read from input is subsequently broadcast to all processors
@@ -70,6 +70,8 @@ SUBROUTINE hp_readin()
   disable_type_analysis   = .FALSE.
   equiv_type(:)      = 0
   find_atpert        = 1
+  acbn0              = 0
+  nn_distance        = -1.0D0
   background         = 'no'
   compute_hp         = .FALSE.
   sum_pertq          = .FALSE.
@@ -147,8 +149,12 @@ SUBROUTINE input_sanity()
   USE xc_lib,           ONLY : xclib_dft_is
   USE ldaU,             ONLY : lda_plus_u, Hubbard_projectors, lda_plus_u_kind, Hubbard_J0, &
                                Hubbard_V, is_hubbard_back
+  USE ldaV,             ONLY : lda_plus_v
   !
   IMPLICIT NONE
+  !
+  IF (acbn0 < 0 .OR. acbn0 > 2) CALL errore ('hp_readin', &
+     ' acbn0 must be 0 (DFPT, default), 1 (ACBN0 U) or 2 (eACBN0 U+V) ',1)
   !
   IF (conv_thr_chi <= 0.D0) CALL errore ('hp_readin', ' Wrong conv_thr_chi ',1)
   !
@@ -165,7 +171,10 @@ SUBROUTINE input_sanity()
        ANY(Hubbard_V(:,:,4).NE.0.d0) ) &
      CALL errore ('hp_readin', 'The HP code does not support DFT+U+V with the background', 1)
   !
-  IF (ANY(is_hubbard_back(:))) CALL errore ("hp_readin", &
+  ! Background channels are a DFPT limitation, not an ACBN0 one: the eACBN0
+  ! kernels index the manifold through ll(m,nt) and handle several channels
+  ! per type from stage V4 on (see HP/src/eACBN0.f90, MODULE hp_acbn0_man).
+  IF (ANY(is_hubbard_back(:)) .AND. acbn0 == 0) CALL errore ("hp_readin", &
           &" Two (or more) Hubbard channels per atomic type is not implemented", 1)
   !
   IF (ANY(Hubbard_J0(:).NE.0.d0)) &
@@ -191,18 +200,55 @@ SUBROUTINE input_sanity()
   !
   IF (nmix.LT.1) CALL errore ('hp_readin', ' Wrong nmix ', 1) 
   !
-  IF (ltetra) CALL errore ('hp_readin', 'HP with tetrahedra is not supported', 1)
+  ! Three of the guards below are preconditions of the DFPT linear-response
+  ! branch, not of the code as a whole.  The ACBN0 branch (acbn0 > 0) reads a
+  ! converged ground state and evaluates a functional of it; it solves no
+  ! Sternheimer equation, so it does not inherit them.  Each is relaxed for
+  ! exactly the cases where it does not apply, and the ACBN0 preconditions are
+  ! then enforced separately in hp_acbn0_check / hp_acbn0_check_v.
+  !
+  ! ltetra: DFPT needs smearing or fixed occupations to build the response.
+  ! ACBN0 only reads wg (weights x occupations), which the tetrahedron method
+  ! supplies perfectly well.  The authors' own reference input
+  ! (example/MnO.acbn0.in) uses occupations = 'tetrahedra_opt'.
+  !
+  IF (ltetra .AND. acbn0 == 0) CALL errore ('hp_readin', &
+     'HP with tetrahedra is not supported', 1)
   !
   IF (gamma_only) CALL errore('hp_readin',&
      & 'Cannot start from pw.x data file using Gamma-point tricks',1)
   !
-  IF (.NOT.lda_plus_u) CALL errore('hp_readin',&
+  ! lda_plus_u: required by DFPT and by acbn0 = 1, which projects with ldaU's
+  ! wfcU / offsetU / Hubbard_l.  acbn0 = 2 is still on ldaV bookkeeping and
+  ! needs lda_plus_v instead - the authors' inputs (MnO.acbn0.in,
+  ! GaAs.acbn0.in) carry no HUBBARD card at all.
+  !
+  IF (.NOT.lda_plus_u .AND. acbn0 /= 2) CALL errore('hp_readin',&
      & 'The HP code can be used only on top of DFT+Hubbard (i.e. when the HUBBARD card is used in pw.x)',1)
   !
-  IF (lda_plus_u_kind.EQ.1) CALL errore("hp_readin", &
+  ! acbn0 = 2 needs an inter-site cutoff d_IJ.  Since V3 the +V branch owns
+  ! its own neighbour table, so the cutoff can come straight from &INPUTHP;
+  ! when it does not, fall back to the ehub_nn_distance stored in the XML,
+  ! which exists only if the pw.x run carried the fork's lda_plus_v.
+  !
+  IF (acbn0 == 2 .AND. nn_distance < 0.0D0 .AND. .NOT.lda_plus_v) &
+     CALL errore('hp_readin', 'acbn0 = 2 on a stock DFT+U ground state needs &
+     &an inter-site cutoff: set nn_distance (in Angstrom) in &INPUTHP.  It is &
+     &optional only when the pw.x run carried lda_plus_v, in which case &
+     &ehub_nn_distance is taken from the XML.',1)
+  !
+  IF (nn_distance > 20.0D0) CALL errore('hp_readin', &
+     ' nn_distance is unreasonably large (> 20 Angstrom) ',1)
+  !
+  ! lda_plus_u_kind = 1 is the Liechtenstein DFT+U+J formulation.  It changes
+  ! the DFPT response and the ldaU projectors; it has no bearing on the ldaV
+  ! bookkeeping that acbn0 = 2 uses.
+  !
+  IF (lda_plus_u_kind.EQ.1 .AND. acbn0 /= 2) CALL errore("hp_readin", &
      & ' The HP code does not support the Liechtenstein formulation of DFT+U',1)
   !
-  IF (Hubbard_projectors.NE."atomic" .AND. Hubbard_projectors.NE."ortho-atomic") &
+  IF (Hubbard_projectors.NE."atomic" .AND. Hubbard_projectors.NE."ortho-atomic" &
+      .AND. acbn0 /= 2) &
      CALL errore("hp_readin", &
      " The HP code for this Hubbard_projectors type is not implemented",1)
   !   

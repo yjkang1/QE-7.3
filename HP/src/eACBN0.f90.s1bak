@@ -1,0 +1,394 @@
+!
+! Copyright (C) 2001-2026 Quantum ESPRESSO group
+! This file is distributed under the terms of the
+! GNU General Public License. See the file `License'
+! in the root directory of the present distribution,
+! or http://www.gnu.org/copyleft/gpl.txt .
+!
+!
+!-----------------------------------------------------------------------
+!
+! (extended) ACBN0 evaluation of Hubbard parameters inside hp.x.
+!
+! hp.x normally obtains U (and V) by DENSITY-FUNCTIONAL PERTURBATION THEORY
+! (the chi0 -> chi route of Cococcioni & de Gironcoli).  The routines in this
+! file add a SECOND, INDEPENDENT estimator to the same driver: the
+! pseudo-hybrid ACBN0 ratio of Agapito, Curtarolo & Buongiorno Nardelli
+! [PRX 5, 011006 (2015)], as implemented in this fork's PW/src/new_ns_v.f90.
+!
+! Both estimators then read the *same* ground state produced by one pw.x run,
+! with the same ortho-atomic projectors, which is the whole point: it makes
+! U_ACBN0 and U_DFPT directly comparable without a second SCF.
+!
+! Controlled by the input variable  acbn0  in &INPUTHP:
+!     acbn0 = 0   (default)  stock hp.x, DFPT only.  Nothing here runs.
+!     acbn0 = 1              on-site U      -> ACBN0     (acbn0_type = 1)
+!     acbn0 = 2              on-site U + V  -> eACBN0    (acbn0_type = 2)
+!
+! When acbn0 > 0 hp.x computes the Hubbard parameters, writes eACBN0_hub.dat,
+! and stops before the perturbed-atom / DFPT loop (see HP/src/hp_main.f90).
+!
+! STAGING (see the session log): this file is being built in stages.
+!   S1  driver only; the physics kernels are still the ones inside libpw.a
+!       (PW/src/new_ns_v.f90), reached by a plain CALL.  This gives a
+!       reference number that later stages must reproduce.
+!   S2  the kernels get transplanted into THIS file and the CALL is switched.
+!   S3  the transplanted kernels are converted from MODULE ldaV bookkeeping
+!       to MODULE ldaU bookkeeping, so hp.x no longer needs an aCBN0 pw.x run.
+!
+!-----------------------------------------------------------------------
+SUBROUTINE hp_acbn0()
+  !---------------------------------------------------------------------
+  !
+  ! Driver.  Called from hp_main.f90 right after hp_summary(), i.e. after
+  ! hp_readin() -> read_file() has restored the pw.x ground state and BEFORE
+  ! the perturbed-atom loop rebuilds the k-point list with k+q.
+  !
+  ! State available at this point (all set up by read_file):
+  !   evc / iunwfc  KS orbitals               (read_file_new.f90:43-54)
+  !   wg            weights x occupations,
+  !                 already poolscattered     (read_file_new.f90:123)
+  !   nks,xk,ngk,igk_k,isk   pool-local       (divide_et_impera)
+  !   vkb, tab_atwfc, rho    initialised      (post_xml_init)
+  !   MODULE ldaV   fully initialised, and wfcv allocated, PROVIDED the XML
+  !                 carries an <ehub> block  (qexsd_copy.f90:570,
+  !                 read_file_new.f90:325, allocate_wfc.f90:41)
+  !
+  ! What is NOT set up, and is done here:
+  !   d1,d2,d3      read_file only calls d_matrix under okpaw
+  !                 (read_file_new.f90:348-351).  With norm-conserving
+  !                 pseudos okpaw is .false., so the Wigner d-matrices used
+  !                 by symmetrize_n4 would otherwise be garbage.
+  !   iunhubv       the projector buffer; opened by openfil.f90:62 in pw.x,
+  !                 which hp.x never calls.
+  !   wfcv          allocated but empty; filled here by orthowfcv().
+  !
+  USE kinds,            ONLY : DP
+  USE io_global,        ONLY : stdout
+  USE io_files,         ONLY : iunhubv, nwordwfcv, iunwfc, nwordwfc
+  USE buffers,          ONLY : open_buffer, close_buffer
+  USE ions_base,        ONLY : nat
+  USE lsda_mod,         ONLY : nspin
+  USE wvfct,            ONLY : npwx, nbnd
+  USE control_flags,    ONLY : io_level
+  USE noncollin_module, ONLY : noncolin, npol
+  USE symm_base,        ONLY : d1, d2, d3
+  USE ldaV,             ONLY : lda_plus_v, lacbn0, acbn0_type, ehub_lm_max, &
+                               ehub_u, ehub_mixing, nwfcv,               &
+                               remove_ehub_u, remove_ehub_v
+  USE ldaU_hp,          ONLY : acbn0
+  !
+  IMPLICIT NONE
+  !
+  REAL(DP), ALLOCATABLE :: ns(:,:,:,:)   ! occupation matrix, = rho%na0 in pw.x
+  LOGICAL               :: exst
+  !
+  CALL start_clock('hp_acbn0')
+  !
+  WRITE( stdout, '(/5x,70("="))')
+  WRITE( stdout, '(/5x,"ACBN0 calculation of Hubbard parameters")')
+  IF ( acbn0 == 1 ) THEN
+     WRITE( stdout, '(5x,"acbn0 = 1 : on-site U only")')
+  ELSE
+     WRITE( stdout, '(5x,"acbn0 = 2 : on-site U + intersite V")')
+  ENDIF
+  WRITE( stdout, '(5x,"Reference : Agapito, Curtarolo & Buongiorno Nardelli,")')
+  WRITE( stdout, '(5x,"            Phys. Rev. X 5, 011006 (2015)")')
+  WRITE( stdout, '(5x,70("="),/)')
+  !
+  CALL hp_acbn0_check()
+  !
+  ! One-shot post-processing: there is no SCF history to mix against, so the
+  ! ACBN0 kernels must return the raw functional of the wavefunctions we just
+  ! read.  ehub_mixing defaults to 0.7 in the fork; leaving it there would
+  ! silently return  0.3*U_from_XML + 0.7*U_computed.
+  !
+  ehub_mixing = 1.0_DP
+  !
+  ! remove_ehub_u / remove_ehub_v have NO initialiser in MODULE ldaV
+  ! (ldaV.f90:46-47) and are assigned ONLY in PW/src/input.f90:2083-2086
+  ! (dftU_iosys_v1) - which is pw.x's INPUT path.  hp.x never executes it, and
+  ! qexsd_copy does not round-trip them through the XML.  So in hp.x they are
+  ! undefined, and new_ns_a0 multiplies the final U by remove_ehub_u TWICE:
+  !     ehub_u_(na,m1,m2) = (A0/HF - J-term) * remove_ehub_u(nt,l(m1))
+  !                                          * remove_ehub_u(nt,l(m2))
+  ! Left undefined that silently scales, or zeroes, every Hubbard parameter.
+  ! 1 is the pw.x default (read_namelists.f90:248-249) = "keep this channel".
+  !
+  remove_ehub_u(:,:) = 1
+  remove_ehub_v(:,:) = 1
+  !
+  ! ehub_u may already be allocated: qexsd_copy.f90:586 allocates it while
+  ! reading the XML, using the ehub_lm_max STORED there.  init_lda_plus_v then
+  ! RECOMPUTES ehub_lm_max from the pseudopotentials.  If the two ever
+  ! disagree (different PP, edited ehub_l_choice) new_ns_a0 writes out of
+  ! bounds, silently.  Re-shape rather than trust it.
+  !
+  IF ( ALLOCATED(ehub_u) ) THEN
+     IF ( SIZE(ehub_u,1) /= nat          .OR. &
+          SIZE(ehub_u,2) /= ehub_lm_max  .OR. &
+          SIZE(ehub_u,3) /= ehub_lm_max ) DEALLOCATE( ehub_u )
+  ENDIF
+  IF ( .NOT.ALLOCATED(ehub_u) ) ALLOCATE( ehub_u(nat,ehub_lm_max,ehub_lm_max) )
+  ehub_u(:,:,:) = 0.0_DP
+  !
+  ! Wigner d-matrices for the symmetrisation of the occupation matrix.
+  ! See the note in the header: read_file does not do this for us.
+  !
+  CALL d_matrix( d1, d2, d3 )
+  !
+  ! Re-open the KS orbital buffer.
+  !
+  ! read_file() reads the collected wavefunctions, save_buffer's them to
+  ! iunwfc, and then CLOSES that unit again (read_file_new.f90:62,
+  ! close_buffer(iunwfc,'KEEP')).  'KEEP' preserves the FILES but
+  ! close_buffer also calls buiol_close_unit, which DEREGISTERS the unit from
+  ! the buffer list.  get_buffer then finds no buffer entry, falls through to
+  ! its ELSE branch, and calls davcio on a closed unit:
+  !     Error in routine davcio (10): unit is not opened
+  ! Stock hp.x never trips this because it reads wavefunctions through iuwfc
+  ! (units_lr), opened much later in hp_openfil_q.  new_ns_a0 reads iunwfc.
+  !
+  ! Same three lines read_file uses, so the record length matches byte for byte.
+  !
+  nwordwfc = nbnd * npwx * npol
+  CALL open_buffer( iunwfc, 'wfc', nwordwfc, io_level, exst )
+  IF ( io_level /= 0 .AND. .NOT.exst ) CALL errore( 'hp_acbn0', &
+     'the KS wavefunction files (prefix.wfc*) are missing from outdir - &
+     &rerun pw.x, or set disk_io to at least "low"', 1 )
+  !
+  ! Projector buffer.  Record length and unit exactly as pw.x sets them in
+  ! PW/src/openfil.f90:54,62 - keep these two lines in sync with that file.
+  !
+  nwordwfcv = npwx * nwfcv * npol
+  CALL open_buffer( iunhubv, 'hubv', nwordwfcv, io_level, exst )
+  !
+  ! Fill wfcv = O^{-1/2} S phi  on the Hubbard manifold, for every k point,
+  ! and buffer it.  PW/src/orthoatwfc_v.f90; forces Hubbard_projectors to
+  ! 'ortho-atomic' internally.
+  !
+  CALL orthowfcv()
+  !
+  ALLOCATE( ns(ehub_lm_max,ehub_lm_max,nspin,nat) )
+  ns(:,:,:,:) = 0.0_DP
+  !
+  IF ( acbn0 == 1 ) THEN
+     !
+     ! S1: the on-site ACBN0 kernel still lives in libpw.a
+     !     (PW/src/new_ns_v.f90:233).  S2 replaces this with the local copy.
+     !
+     CALL new_ns_a0( ns )
+     !
+  ELSE
+     !
+     CALL errore( 'hp_acbn0', 'acbn0 = 2 (U+V) is not implemented yet - &
+                  &that is stage S4.  Use acbn0 = 1.', 1 )
+     !
+  ENDIF
+  !
+  CALL hp_acbn0_write( ns )
+  !
+  DEALLOCATE( ns )
+  CALL close_buffer( iunhubv, 'delete' )   ! ours, scratch
+  CALL close_buffer( iunwfc,  'KEEP'   )   ! the user's wavefunctions - NEVER delete
+  !
+  CALL stop_clock('hp_acbn0')
+  !
+  RETURN
+  !
+END SUBROUTINE hp_acbn0
+!
+!-----------------------------------------------------------------------
+SUBROUTINE hp_acbn0_check()
+  !---------------------------------------------------------------------
+  !
+  ! Everything the ACBN0 kernels silently assume.  Each of these fails as a
+  ! wrong number rather than a crash if it is not caught here.
+  !
+  USE io_global,        ONLY : stdout
+  USE lsda_mod,         ONLY : nspin
+  USE control_flags,    ONLY : gamma_only
+  USE ldaU,             ONLY : Hubbard_projectors
+  USE ldaV,             ONLY : lda_plus_v, lacbn0, acbn0_type, ehub_lm_max
+  USE ldaU_hp,          ONLY : acbn0
+  !
+  IMPLICIT NONE
+  !
+  IF ( .NOT.lda_plus_v ) CALL errore( 'hp_acbn0_check', &
+     'acbn0 > 0 needs a pw.x run made with lacbn0 = .true. (stages S1/S2): &
+     &no <ehub> block was found in the XML, so MODULE ldaV is uninitialised.', 1 )
+  !
+  IF ( .NOT.lacbn0 ) CALL errore( 'hp_acbn0_check', &
+     'the pw.x run set lda_plus_v but not lacbn0; the ACBN0 bookkeeping &
+     &(ehub_l, ehub_lm, ofstv) is present but was never used. Rerun pw.x &
+     &with lacbn0 = .true.', 1 )
+  !
+  IF ( ehub_lm_max <= 0 ) CALL errore( 'hp_acbn0_check', &
+     'ehub_lm_max <= 0 : no Hubbard manifold was selected. Check &
+     &ehub_l_choice in the pw.x input.', 1 )
+  !
+  ! nspin: init_lda_plus_v already rejects nspin = 1, but new_ns_a0 also
+  ! hard-codes spin indices 1 and 2 in its A0/HF accumulators, so state it.
+  !
+  IF ( nspin /= 2 ) CALL errore( 'hp_acbn0_check', &
+     'ACBN0 in hp.x is implemented for collinear spin-polarised only &
+     &(nspin = 2).', 1 )
+  !
+  IF ( gamma_only ) CALL errore( 'hp_acbn0_check', &
+     'gamma_only is not supported by the ACBN0 kernels', 1 )
+  !
+  ! acbn0 (this run) vs acbn0_type (what pw.x was run with).  They need not
+  ! agree - we recompute from scratch - but a mismatch is worth flagging,
+  ! because the U/V read from the XML were produced with the other one.
+  !
+  IF ( acbn0 /= acbn0_type ) &
+     WRITE( stdout, '(5x,"WARNING: acbn0 = ",i1," but the pw.x run used &
+            &acbn0_type = ",i1,".")') acbn0, acbn0_type
+  !
+  ! orthowfcv() will force this, but say so before it happens silently.
+  !
+  IF ( TRIM(Hubbard_projectors) /= 'ortho-atomic' ) &
+     WRITE( stdout, '(5x,"WARNING: Hubbard_projectors = ",a,"; the ACBN0 &
+            &kernels use ortho-atomic projectors and will override it.")') &
+            TRIM(Hubbard_projectors)
+  !
+  RETURN
+  !
+END SUBROUTINE hp_acbn0_check
+!
+!-----------------------------------------------------------------------
+SUBROUTINE hp_acbn0_write( ns )
+  !---------------------------------------------------------------------
+  !
+  ! Write the ACBN0 Hubbard parameters to eACBN0_hub.dat (and to stdout).
+  !
+  ! Note on the "scalar U" column: ehub_u(na,m1,m2) is an (m1,m2) matrix, but
+  ! new_ns_v.f90 builds it as
+  !     ehub_u_(na,m1,m2) = A0%U(l(m1),l(m2),na)/HF%U(l(m1),l(m2),na) - J-term
+  ! i.e. it depends on m1,m2 ONLY through their l channel.  For an atom with a
+  ! single Hubbard channel (the usual case: Ni-3d, O-2p) every element is
+  ! therefore the same number, and that number is the scalar U to compare
+  ! against the DFPT value in prefix.Hubbard_parameters.dat.  The full matrix
+  ! is printed too, because it stops being constant as soon as a type carries
+  ! more than one channel via ehub_l_choice.
+  !
+  USE kinds,      ONLY : DP
+  USE constants,  ONLY : rytoev
+  USE io_global,  ONLY : stdout, ionode
+  USE io_files,   ONLY : prefix
+  USE ions_base,  ONLY : nat, ityp, atm, ntyp => nsp
+  USE lsda_mod,   ONLY : nspin
+  USE ldaV,       ONLY : ehub_lm, ehub_lm_max, ehub_l, ehub_u, acbn0_type
+  !
+  IMPLICIT NONE
+  !
+  REAL(DP), INTENT(IN) :: ns(ehub_lm_max,ehub_lm_max,nspin,nat)
+  !
+  INTEGER              :: na, nt, m1, m2, is, iunit
+  REAL(DP)             :: utr, occ
+  LOGICAL              :: uniform
+  CHARACTER(LEN=1)     :: spdf(4) = ['s','p','d','f']
+  CHARACTER(LEN=256)   :: filename
+  !
+  INTEGER, EXTERNAL    :: find_free_unit
+  !
+  IF ( .NOT.ionode ) RETURN
+  !
+  filename = 'eACBN0_hub.dat'
+  iunit = find_free_unit()
+  OPEN( iunit, file = TRIM(filename), form = 'formatted', status = 'unknown' )
+  !
+  WRITE( iunit, '(/2x,79("="))')
+  WRITE( iunit, '(/25x,"Hubbard parameters from ACBN0")')
+  WRITE( iunit, '(/22x,"computed by hp.x  (acbn0 = ",i1,")")') acbn0_type
+  WRITE( iunit, '(/2x,79("="),/)')
+  WRITE( iunit, '(2x,"prefix     : ",a)') TRIM(prefix)
+  WRITE( iunit, '(2x,"projectors : ortho-atomic")')
+  WRITE( iunit, '(2x,"mixing     : 1.000  (one-shot; no SCF history)")')
+  WRITE( iunit, '(2x,"estimator  : pseudo-hybrid ACBN0 ratio, NOT linear response")')
+  WRITE( iunit, '(/2x,79("-"))')
+  WRITE( iunit, '(2x,"Summary")')
+  WRITE( iunit, '(2x,79("-"))')
+  WRITE( iunit, '(/4x,"site n.  type  label   manifold   occupation   U_ACBN0 (eV)")')
+  !
+  DO na = 1, nat
+     nt = ityp(na)
+     IF ( ehub_lm(nt) == 0 ) CYCLE
+     !
+     ! trace of the occupation matrix, summed over spin
+     occ = 0.0_DP
+     DO is = 1, nspin
+        DO m1 = 1, ehub_lm(nt)
+           occ = occ + ns(m1,m1,is,na)
+        ENDDO
+     ENDDO
+     !
+     ! is the U matrix constant?  (see the header note)
+     uniform = .TRUE.
+     DO m1 = 1, ehub_lm(nt)
+        DO m2 = 1, ehub_lm(nt)
+           IF ( ABS(ehub_u(na,m1,m2) - ehub_u(na,1,1)) > 1.0D-8 ) uniform = .FALSE.
+        ENDDO
+     ENDDO
+     !
+     utr = ehub_u(na,1,1) * rytoev
+     !
+     IF ( uniform ) THEN
+        WRITE( iunit, '(6x,i3,4x,i3,3x,a6,5x,a1,7x,f9.4,4x,f10.4)') &
+              na, nt, TRIM(atm(nt)), spdf(ehub_l(1,nt)), occ, utr
+     ELSE
+        WRITE( iunit, '(6x,i3,4x,i3,3x,a6,5x,a1,7x,f9.4,4x,f10.4,3x,a)') &
+              na, nt, TRIM(atm(nt)), spdf(ehub_l(1,nt)), occ, utr, &
+              '<- matrix NOT uniform, see below'
+     ENDIF
+     !
+  ENDDO
+  !
+  WRITE( iunit, '(/2x,79("-"))')
+  WRITE( iunit, '(2x,"Full U matrix  U[na, m1, m2]  (eV)")')
+  WRITE( iunit, '(2x,79("-"))')
+  !
+  DO na = 1, nat
+     nt = ityp(na)
+     IF ( ehub_lm(nt) == 0 ) CYCLE
+     WRITE( iunit, '(/4x,"atom ",i3,"  type ",a,"   (",i2," x",i2,")")') &
+           na, TRIM(atm(nt)), ehub_lm(nt), ehub_lm(nt)
+     DO m1 = 1, ehub_lm(nt)
+        WRITE( iunit, '(6x,16f10.4)') (ehub_u(na,m1,m2)*rytoev, m2 = 1, ehub_lm(nt))
+     ENDDO
+  ENDDO
+  !
+  WRITE( iunit, '(/2x,79("-"))')
+  WRITE( iunit, '(2x,"Occupation matrix  ns[na, m1, m2, spin]")')
+  WRITE( iunit, '(2x,79("-"))')
+  !
+  DO na = 1, nat
+     nt = ityp(na)
+     IF ( ehub_lm(nt) == 0 ) CYCLE
+     DO is = 1, nspin
+        WRITE( iunit, '(/4x,"atom ",i3,"  type ",a,"  spin ",i1)') na, TRIM(atm(nt)), is
+        DO m1 = 1, ehub_lm(nt)
+           WRITE( iunit, '(6x,16f10.4)') (ns(m1,m2,is,na), m2 = 1, ehub_lm(nt))
+        ENDDO
+     ENDDO
+  ENDDO
+  !
+  WRITE( iunit, '(/2x,79("="),/)')
+  CLOSE( iunit )
+  !
+  WRITE( stdout, '(/5x,"ACBN0 Hubbard parameters written to ",a,/)') TRIM(filename)
+  !
+  ! Echo the summary to stdout as well, so it is greppable from the job output.
+  !
+  WRITE( stdout, '(5x,"site n.  type  label   manifold   U_ACBN0 (eV)")')
+  DO na = 1, nat
+     nt = ityp(na)
+     IF ( ehub_lm(nt) == 0 ) CYCLE
+     WRITE( stdout, '(7x,i3,4x,i3,3x,a6,5x,a1,8x,f10.4)') &
+           na, nt, TRIM(atm(nt)), spdf(ehub_l(1,nt)), ehub_u(na,1,1)*rytoev
+  ENDDO
+  WRITE( stdout, * )
+  !
+  RETURN
+  !
+END SUBROUTINE hp_acbn0_write

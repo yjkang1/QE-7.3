@@ -26,6 +26,8 @@ SUBROUTINE hp_print_clock
   WRITE( stdout, * )  '    PRINTING TIMING FROM HP ROUTINES: '
   WRITE( stdout, * )
   !
+  CALL print_clock ('hp_acbn0')
+  CALL print_clock ('acbn0_ns_a0')
   CALL print_clock ('hp_setup_q')
   CALL print_clock ('hp_init_q')
   CALL print_clock ('hp_solve_linear_system')

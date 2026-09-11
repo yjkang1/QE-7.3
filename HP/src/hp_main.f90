@@ -24,7 +24,7 @@ PROGRAM hp_main
   USE ldaU_hp,           ONLY : perturbed_atom, start_q, last_q, nqs, code, &
                                 compute_hp, sum_pertq, perturb_only_atom,   &
                                 determine_num_pert_only, tmp_dir_save,      &
-                                determine_q_mesh_only
+                                determine_q_mesh_only, acbn0
   !
   IMPLICIT NONE
   !
@@ -58,6 +58,27 @@ PROGRAM hp_main
   !
   ! Allocate and initialize various arrays needed
   ! for the HP calculation
+  !
+  ! ACBN0 route.  Obtain the Hubbard parameters from the pseudo-hybrid ACBN0
+  ! functional rather than from DFPT, write eACBN0_hub.dat, and stop.
+  !
+  ! This must happen HERE - after hp_readin() -> read_file() has restored the
+  ! pw.x ground state, but BEFORE hp_init() and hp_summary().  Two reasons:
+  !
+  !   1. hp_init -> hp_find_inequiv_sites counts atoms with is_hubbard(nt) and
+  !      aborts when there are none.  A ldaV-only ground state (lda_plus_v /
+  !      lacbn0 with no HUBBARD card - which is what example/MnO.acbn0.in and
+  !      example/GaAs.acbn0.in_noncollienar both are) legitimately has none.
+  !      hp_init and hp_summary set up the DFPT perturbed-atom machinery,
+  !      which the ACBN0 route never touches.
+  !   2. the loop below destroys the ground state anyway (hp_run_nscf rebuilds
+  !      the k-point list with k+q, and clean_pw/read_file re-enter from
+  !      scratch), so the ACBN0 evaluation has to precede all of it.
+  !
+  IF (acbn0 > 0) THEN
+     CALL hp_acbn0()
+     GO TO 104
+  ENDIF
   !
   CALL hp_init()
   !
