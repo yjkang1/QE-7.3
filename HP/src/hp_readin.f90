@@ -27,7 +27,8 @@ SUBROUTINE hp_readin()
                                skip_equivalence_q, tmp_dir_save, niter_max, dist_thr,  &
                                disable_type_analysis, docc_thr, num_neigh, lmin, rmax, &
                                nmix, nq1, nq2, nq3, alpha_mix, start_q, last_q, maxter, &
-                               determine_q_mesh_only, acbn0, nn_distance
+                               determine_q_mesh_only, acbn0, nn_distance,       &
+                         acbn0_manifold, acbn0_manifold2
   USE paw_variables,    ONLY : okpaw
   !
   IMPLICIT NONE
@@ -44,7 +45,8 @@ SUBROUTINE hp_readin()
                          niter_max, alpha_mix, nmix, compute_hp, perturb_only_atom,   &
                          start_q, last_q, sum_pertq, ethr_nscf, num_neigh, lmin,      &
                          determine_num_pert_only, disable_type_analysis, docc_thr,    &
-                         determine_q_mesh_only, acbn0, nn_distance
+                         determine_q_mesh_only, acbn0, nn_distance,       &
+                         acbn0_manifold, acbn0_manifold2
   !
   ! Note: meta_ionode is a single processor that reads the input
   !       Data read from input is subsequently broadcast to all processors
@@ -72,6 +74,8 @@ SUBROUTINE hp_readin()
   find_atpert        = 1
   acbn0              = 0
   nn_distance        = -1.0D0
+  acbn0_manifold(:)  = ' '
+  acbn0_manifold2(:) = ' '
   background         = 'no'
   compute_hp         = .FALSE.
   sum_pertq          = .FALSE.
@@ -120,6 +124,13 @@ SUBROUTINE hp_readin()
   !
   CALL read_file()
   !
+  ! ACBN0 only: if the pw.x run carried no HUBBARD card, MODULE ldaU is empty
+  ! and the transplanted kernels have no manifold to project onto.  When
+  ! acbn0_manifold is given we declare the manifold here and let stock QE's
+  ! own init_hubbard build everything from it.  See the routine below.
+  !
+  CALL acbn0_manifold_setup()
+  !
   ! Compute the trace of the occupation matrix and then compute
   ! the occupations and the magnetization
   !
@@ -134,6 +145,174 @@ SUBROUTINE hp_readin()
   !
 CONTAINS
   !
+!-----------------------------------------------------------------------
+SUBROUTINE acbn0_manifold_setup()
+  !---------------------------------------------------------------------
+  !
+  ! Declare the Hubbard manifold from &INPUTHP instead of from the pw.x
+  ! HUBBARD card, and let stock QE build everything else from it.
+  !
+  ! WHY THIS EXISTS.  The transplanted ACBN0 kernels read the manifold out of
+  ! MODULE ldaU (as lm / lch / ofs, see MODULE hp_acbn0_man).  ldaU is filled
+  ! by init_hubbard, which read_file calls ONLY when the XML says lda_plus_u
+  ! (PW/src/read_file_new.f90:318-320) - i.e. only when the pw.x input carried
+  ! a HUBBARD card.  A plain LDA/PBE ground state therefore arrives with
+  ! is_hubbard all .false. and nwfcU = 0, and hp_acbn0_check(_v) refuses it.
+  !
+  ! That forced every ACBN0 ground state to be prepared in advance, carrying a
+  ! placeholder U whose only job was to flip the "/= 0" test at
+  ! PW/src/ldaU.f90:242.  With acbn0_manifold the declaration moves into the
+  ! hp.x input, so any ground state can be analysed after the fact - which is
+  ! what Lee & Son do with ehub_l_choice in &system, one program earlier.
+  !
+  ! WHAT IT DOES NOT DO.  It does not reimplement init_hubbard.  It sets the
+  ! handful of module variables init_hubbard reads, then CALLS it, so ldim_u,
+  ! ldmx_tot, ll, Hubbard_lmax, hubbard_occ, offsetU, offsetU_back(1) and
+  ! nwfcU are built by stock QE exactly as they would have been.
+  !
+  ! The projectors are unaffected by any of this: orthoUwfc builds
+  ! O^-1/2 S phi from the pseudo-atomic orbitals in the .upf, which lives in
+  ! the .save.  Whether pw.x applied a Hubbard potential is irrelevant to them.
+  !
+  USE ions_base,        ONLY : ntyp => nsp
+  USE ldaU,             ONLY : lda_plus_u, lda_plus_u_kind, Hubbard_projectors, &
+                               Hubbard_n, Hubbard_l, Hubbard_n2, Hubbard_l2,    &
+                               Hubbard_U, Hubbard_U2, nwfcU, wfcU, backall
+  USE uspp_param,       ONLY : upf
+  USE lsda_mod,         ONLY : nspin
+  USE noncollin_module, ONLY : noncolin, npol
+  USE wvfct,            ONLY : npwx
+  USE io_global,        ONLY : stdout
+  !
+  IMPLICIT NONE
+  !
+  ! Placeholder occupancy, in Ry.  Never enters the physics: ACBN0 recomputes U
+  ! from the occupations and the two-electron integrals and never reads
+  ! Hubbard_U.  It exists only because is_hubbard is a "/= 0" test.
+  !
+  REAL(DP), PARAMETER :: U_FLAG = 1.0D-10
+  !
+  INTEGER :: nt
+  LOGICAL :: given
+  !
+  given = ANY( acbn0_manifold(1:ntyp)  /= ' ' ) .OR. &
+          ANY( acbn0_manifold2(1:ntyp) /= ' ' )
+  !
+  IF ( .NOT.given ) RETURN
+  !
+  IF ( acbn0 == 0 ) CALL errore( 'acbn0_manifold_setup', &
+     'acbn0_manifold is meaningful only for acbn0 = 1 or 2', 1 )
+  !
+  ! Refuse to override rather than silently disagree with the ground state.
+  ! If the pw.x run declared a manifold, that is the manifold it was converged
+  ! with; analysing it against a different one would be quietly wrong.
+  !
+  IF ( lda_plus_u ) CALL errore( 'acbn0_manifold_setup', &
+     'this ground state already declares a Hubbard manifold (its pw.x input &
+     &carried a HUBBARD card).  Drop acbn0_manifold from &INPUTHP to use the &
+     &manifold recorded in the XML.', 1 )
+  !
+  DO nt = 1, ntyp
+     IF ( acbn0_manifold2(nt) /= ' ' .AND. acbn0_manifold(nt) == ' ' ) &
+        CALL errore( 'acbn0_manifold_setup', &
+        'acbn0_manifold2 given for a type whose acbn0_manifold is blank', nt )
+  ENDDO
+  !
+  DO nt = 1, ntyp
+     !
+     IF ( acbn0_manifold(nt) /= ' ' ) THEN
+        CALL acbn0_parse_manifold( acbn0_manifold(nt), nt, &
+                                   Hubbard_n(nt), Hubbard_l(nt) )
+        Hubbard_U(nt) = U_FLAG
+     ENDIF
+     !
+     IF ( acbn0_manifold2(nt) /= ' ' ) THEN
+        CALL acbn0_parse_manifold( acbn0_manifold2(nt), nt, &
+                                   Hubbard_n2(nt), Hubbard_l2(nt) )
+        Hubbard_U2(nt) = U_FLAG
+     ENDIF
+     !
+  ENDDO
+  !
+  backall(:)         = .FALSE.
+  Hubbard_projectors = 'ortho-atomic'
+  lda_plus_u_kind    = 0
+  lda_plus_u         = .TRUE.
+  !
+  ! Stock QE builds the rest: ldim_u, ldmx_tot, ll, hubbard_occ, offsetU,
+  ! offsetU_back(1) and nwfcU (PW/src/ldaU.f90:202-527).
+  !
+  CALL init_hubbard( upf(1:ntyp)%psd, nspin, noncolin )
+  !
+  IF ( nwfcU <= 0 ) CALL errore( 'acbn0_manifold_setup', &
+     'init_hubbard found no Hubbard states.  Check that acbn0_manifold names &
+     &an orbital that exists in the pseudopotential and carries a label.', 1 )
+  !
+  ! allocate_wfc skipped wfcU on the read path because lda_plus_u was .false.
+  ! at that point (PW/src/allocate_wfc.f90:34).  It is ours to allocate.
+  !
+  IF ( ALLOCATED(wfcU) ) DEALLOCATE( wfcU )
+  ALLOCATE( wfcU(npwx*npol, nwfcU) )
+  !
+  WRITE( stdout, '(/5x,"Hubbard manifold declared in &INPUTHP")')
+  WRITE( stdout, '(5x,"(the pw.x run carried no HUBBARD card)")')
+  DO nt = 1, ntyp
+     IF ( acbn0_manifold(nt) == ' ' ) CYCLE
+     IF ( acbn0_manifold2(nt) /= ' ' ) THEN
+        WRITE( stdout, '(7x,"type ",i2,4x,a,"  + ",a)') &
+           nt, TRIM(acbn0_manifold(nt)), TRIM(acbn0_manifold2(nt))
+     ELSE
+        WRITE( stdout, '(7x,"type ",i2,4x,a)') nt, TRIM(acbn0_manifold(nt))
+     ENDIF
+  ENDDO
+  WRITE( stdout, '(7x,"projectors: ortho-atomic     nwfcU = ",i5,/)') nwfcU
+  !
+  RETURN
+  !
+END SUBROUTINE acbn0_manifold_setup
+
+!-----------------------------------------------------------------------
+SUBROUTINE acbn0_parse_manifold( man, nt, n_out, l_out )
+  !---------------------------------------------------------------------
+  !
+  ! '3d' -> n_out = 3, l_out = 2.  Deliberately the same spelling the HUBBARD
+  ! card uses, so the two routes are written identically by the user
+  ! (cf. Modules/read_cards.f90:2429).
+  !
+  USE upf_utils, ONLY : spdf_to_l
+  !
+  IMPLICIT NONE
+  !
+  CHARACTER(LEN=*), INTENT(IN)  :: man
+  INTEGER,          INTENT(IN)  :: nt
+  INTEGER,          INTENT(OUT) :: n_out, l_out
+  !
+  CHARACTER(LEN=3) :: m
+  INTEGER          :: ios_m
+  !
+  m = ADJUSTL( man )
+  !
+  IF ( LEN_TRIM(m) < 2 ) CALL errore( 'acbn0_parse_manifold', &
+     'acbn0_manifold must look like "3d" or "2p"', nt )
+  !
+  READ( m(1:1), '(i1)', IOSTAT = ios_m ) n_out
+  IF ( ios_m /= 0 .OR. n_out < 1 ) CALL errore( 'acbn0_parse_manifold', &
+     'the first character of acbn0_manifold must be the principal quantum &
+     &number, e.g. the "3" of "3d"', nt )
+  !
+  l_out = spdf_to_l( m(2:2) )
+  !
+  IF ( l_out < 0 ) CALL errore( 'acbn0_parse_manifold', &
+     'the second character of acbn0_manifold must be s, p, d or f', nt )
+  !
+  IF ( l_out > 2 ) CALL errore( 'acbn0_parse_manifold', &
+     'ACBN0 is implemented for s, p and d manifolds only - hp_acbn0_pao_3g &
+     &carries no f Gaussian fits', nt )
+  !
+  RETURN
+  !
+END SUBROUTINE acbn0_parse_manifold
+
 SUBROUTINE input_sanity()
   !-------------------------------------------------------------------------- 
   ! 

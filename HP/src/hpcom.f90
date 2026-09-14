@@ -99,9 +99,16 @@ MODULE ldaU_hp
   INTEGER, PARAMETER :: maxter = 500        ! Maximum number of iterations
   !
   REAL(DP) :: nn_distance                   ! Inter-site cutoff d_IJ in Angstrom for
-                                            ! acbn0 = 2 (stage V3).  Negative means
-                                            ! "take ehub_nn_distance from the XML",
-                                            ! which needs a pw.x run with lda_plus_v.
+                                            ! acbn0 = 2.  Must be set in &INPUTHP.
+  !
+  CHARACTER(LEN=3) :: acbn0_manifold(ntypx)  ! Hubbard manifold per atomic type, as
+                                             ! '3d', '2p', ... .  Lets acbn0 > 0 run on
+                                             ! a ground state whose pw.x input carried
+                                             ! NO HUBBARD card: hp.x then declares the
+                                             ! manifold itself and calls init_hubbard.
+                                             ! Blank (default) = take it from the XML.
+  CHARACTER(LEN=3) :: acbn0_manifold2(ntypx) ! Second (background) channel, same syntax,
+                                             ! e.g. Ga '4s' + '4p'.  Optional.
   !
   REAL(DP) :: conv_thr_chi,      &          ! Threshold for the calculation of chi 
               thresh_init,       &          ! Initial threshold for the solution of 
