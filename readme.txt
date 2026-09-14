@@ -1,0 +1,2 @@
+- "thiswork" version of QE 7.3
+- Actual QE (w/o new_ns_v.f90 patch in PW/src) with transplanted HP/src/eACBN0.f90
