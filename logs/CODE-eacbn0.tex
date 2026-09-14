@@ -1,0 +1,402 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[margin=2.4cm,top=2.5cm,bottom=2.5cm]{geometry}
+\usepackage{newtxtext,newtxmath}
+\usepackage[scaled=0.85]{inconsolata}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{caption}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{underscore}
+\usepackage[colorlinks=true,linkcolor=accent,urlcolor=accent]{hyperref}
+
+\definecolor{accent}{HTML}{1F6F6B}
+\definecolor{rust}{HTML}{A8442A}
+\definecolor{ink}{HTML}{16191A}
+\definecolor{mute}{HTML}{5E6A6B}
+\definecolor{pale}{HTML}{E8F0EF}
+\definecolor{rule}{HTML}{C8D4D3}
+
+\titleformat{\section}{\normalfont\large\bfseries\color{accent}}{\thesection}{0.7em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries\color{ink}}{\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{1.5em plus .3em minus .2em}{0.55em}
+\captionsetup{font=small,labelfont={bf,color=accent}}
+
+\pagestyle{fancy}\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small\color{mute}What \texttt{eACBN0.f90} does}
+\fancyhead[R]{\small\color{mute}\thepage}
+
+\lstset{
+  basicstyle=\ttfamily\scriptsize, breaklines=true, columns=fullflexible,
+  keepspaces=true, backgroundcolor=\color{pale!60}, frame=leftline,
+  framerule=1.2pt, rulecolor=\color{accent}, xleftmargin=8pt,
+  framexleftmargin=8pt, aboveskip=8pt, belowskip=8pt,
+  commentstyle=\color{mute}\itshape,
+}
+\newcommand{\C}[1]{\texttt{\small #1}}
+
+\begin{document}
+
+\begin{center}
+{\LARGE\bfseries What \texttt{eACBN0.f90} actually does}\\[4pt]
+{\large\color{mute} The ACBN0 kernels inside \texttt{hp.x}, and what they\\
+re-implement from \texttt{PW/src/new\_ns\_v.f90}}\\[9pt]
+{\small Code report \quad\textbullet\quad 14 September 2026}
+\end{center}
+
+\vspace{2pt}
+\noindent\textcolor{rule}{\rule{\textwidth}{0.8pt}}
+\vspace{5pt}
+
+\noindent
+This is a description of the code, not of the validation. It answers two
+questions: what the kernels compute, and which parts of them are transplanted
+from the fork versus written here. Method reference: S.~Lee and Y.-W.~Son,
+\emph{Phys.\ Rev.\ Research} \textbf{2}, 043410 (2020); ACBN0 itself: Agapito,
+Curtarolo and Buongiorno Nardelli, \emph{Phys.\ Rev.\ X} \textbf{5}, 011006
+(2015).
+
+\vspace{2pt}
+\noindent\textcolor{rule}{\rule{\textwidth}{0.8pt}}
+
+% =====================================================================
+\section{The quantity being computed}
+
+ACBN0 is not linear response. It never perturbs anything. It evaluates a
+\emph{ratio} on a converged ground state: the Coulomb (and exchange) integral
+over the Hubbard manifold, weighted by \emph{renormalised} occupations, divided
+by the same integral weighted by \emph{bare} occupations. The numerator is
+screened by how much of each Bloch state actually lives on the manifold; the
+denominator is not. Their ratio is the effective $U$.
+
+\subsection{The working formulae, as the code has them}
+
+Write $P^\sigma_{m m'}$ for the renormalised on-site occupation matrix,
+$n^\sigma_{mm}$ for the bare one, and $(m_3 m_1 | m_4 m_2)$ for a two-electron
+repulsion integral over real spherical harmonics. Then for a manifold that is
+not a bare $s$ shell:
+%
+\begin{align}
+A_0^U &= \sum_{m_1 m_2 m_3 m_4}
+  \Big[P^{\uparrow}_{m_3m_1}P^{\uparrow}_{m_4m_2}
+     + P^{\downarrow}_{m_3m_1}P^{\downarrow}_{m_4m_2}
+     + P^{\uparrow}_{m_3m_1}P^{\downarrow}_{m_4m_2}
+     + P^{\downarrow}_{m_3m_1}P^{\uparrow}_{m_4m_2}\Big]\,(m_3m_1|m_4m_2)
+     \label{eq:a0u}\\[2pt]
+A_0^J &= \sum_{m_1 m_2 m_3 m_4}
+  \Big[P^{\uparrow}_{m_3m_1}P^{\uparrow}_{m_4m_2}
+     + P^{\downarrow}_{m_3m_1}P^{\downarrow}_{m_4m_2}\Big]\,(m_3m_2|m_4m_1)
+     \label{eq:a0j}
+\end{align}
+%
+and the denominators, built from bare occupations only,
+%
+\begin{align}
+\mathrm{HF}^U &= \sum_{m_1 \neq m_2}\!\big[n^{\uparrow}_{m_1}n^{\uparrow}_{m_2}
+  + n^{\downarrow}_{m_1}n^{\downarrow}_{m_2}
+  + n^{\uparrow}_{m_1}n^{\downarrow}_{m_2}
+  + n^{\downarrow}_{m_1}n^{\uparrow}_{m_2}\big]
+  \;+ \sum_{m_1 = m_2}\!\big[n^{\uparrow}_{m_1}n^{\downarrow}_{m_2}
+  + n^{\downarrow}_{m_1}n^{\uparrow}_{m_2}\big] \\[2pt]
+\mathrm{HF}^J &= \sum_{m_1 \neq m_2}\big[n^{\uparrow}_{m_1}n^{\uparrow}_{m_2}
+  + n^{\downarrow}_{m_1}n^{\downarrow}_{m_2}\big]
+\end{align}
+%
+giving
+\[
+\boxed{\;U \;=\; \frac{A_0^U}{\mathrm{HF}^U} \;-\; \frac{A_0^J}{\mathrm{HF}^J}\;}
+\qquad\text{and, for a pure $s$ manifold,}\qquad U = \frac{A_0^U}{\mathrm{HF}^U}.
+\]
+
+\noindent
+Two structural points fall straight out of these expressions.
+
+\begin{itemize}[leftmargin=1.3em,itemsep=3pt,topsep=4pt]
+\item The $s$ case drops the exchange term \emph{and} the same-spin part of the
+      direct term. A single $s$ orbital has no orbital exchange partner, and the
+      same-spin Hartree contribution is cancelled by Pauli exclusion, so only
+      the $\uparrow\downarrow$ products survive. In the code this is the
+      \C{IF ( lch(m1,nt) == 1 .AND. lch(m2,nt) == 1 )} branch --- and note it
+      tests \emph{both} indices, because with background channels $m_1$ and
+      $m_2$ can sit in different $\ell$.
+\item The exchange integral has its indices transposed relative to the direct
+      one: $(m_3m_1|m_4m_2)$ against $(m_3m_2|m_4m_1)$. That single swap is the
+      whole difference between $A_0^U$ and $A_0^J$ in the source.
+\end{itemize}
+
+\subsection{The inter-site term}
+
+For $V$ the same construction runs over \emph{pairs} of atoms $(I,J)$ in
+neighbouring cells. The occupation matrix gains three indices ---
+\C{ns(m1,m2,spin,na1,na2,nnc)} instead of \C{ns(m1,m2,spin,na)} --- and the
+two-electron integral is evaluated with its two charge centres at
+$\tau_{I}$ and $\tau_{J}+\mathbf{R}$ rather than both at $\tau_I$. The
+formula is simpler than the on-site one:
+\[
+V_{IJ} \;=\; \frac{1}{2}\,\frac{E_0^{V}(I,J)}{\mathrm{HF}^{V}(I,J)} .
+\]
+No exchange term, and a factor $\tfrac12$ because the pair is accumulated twice,
+once as $(I,J)$ and once as $(J,I)$.
+
+% =====================================================================
+\section{How the $+U$ kernel runs}
+
+\C{hp_acbn0_ns_a0} is about 400 lines. Its shape:
+
+\begin{enumerate}[leftmargin=1.6em,itemsep=3pt]
+\item \textbf{Project.} For each $k$-point, read the KS wavefunctions
+      (\C{iunwfc}) and the ortho-atomic Hubbard projectors (\C{iunhub}), and
+      form $\langle \varphi_m | \psi_{n\mathbf{k}}\rangle$ with \C{calbec}.
+      This is the only place the wavefunctions are touched.
+\item \textbf{Bare occupations $n$.} Accumulate
+      $n^\sigma_{m_1m_2} = \sum_{n\mathbf{k}} w_{n\mathbf{k}}\,
+      \langle\psi|\varphi_{m_2}\rangle\langle\varphi_{m_1}|\psi\rangle$.
+      Standard DFT+U occupation matrix.
+\item \textbf{Per-band manifold weight.} For every band separately, accumulate
+      $|\langle\varphi_m|\psi_{n\mathbf{k}}\rangle|^2$ into
+      \C{num(ibnd)\%O}, indexed by $\ell$ and by \emph{type} rather than by
+      atom, then sum it over all atoms of the same species
+      (\C{upf(nt1)\%psd == upf(nt2)\%psd}). This is the ACBN0 renormalisation
+      factor: how much of band $n\mathbf{k}$ sits on that species' manifold.
+\item \textbf{Renormalised occupations $P$.} Repeat step 2, but weight each band
+      by the factor from step 3. That is the single substantive difference
+      between $n$ and $P$, and the entire physical content of ACBN0.
+\item \textbf{Symmetrise.} Both $n$ and $P$ go through \C{hp_acbn0_symm_n4}.
+\item \textbf{Assemble.} Build $A_0$ from $P$ and HF from $n$ per
+      Eqs.~(1)--(4), then take the ratio.
+\end{enumerate}
+
+\subsection{An observation about the renormalisation}
+
+Step 3 fills \emph{only} the diagonal \C{num(ibnd)\%O(l,l,...)}. Step 4 then
+reads \C{num(ibnd)\%O(l1,l2,...)} with $\ell_1$ from $m_1$ and $\ell_2$ from
+$m_2$. So whenever $m_1$ and $m_2$ lie in \emph{different} channels, the
+renormalisation weight is zero and the corresponding block of $P$ vanishes by
+construction.
+
+For every single-channel system this is invisible: $\ell_1 = \ell_2$ always. It
+only bites on a multi-channel manifold such as GaAs (Ga $4s+4p$), where it means
+the $s$--$p$ cross-block of $P$ is identically zero while the $s$--$p$ block of
+the \emph{bare} occupations is not. \textbf{This is the original code's
+behaviour and we reproduce it exactly} --- which is precisely why our GaAs run
+matches \C{pw.x} across all 204 lines. I am flagging it as a property of the
+method as implemented, not as a defect, because I have not checked it against
+the ACBN0 paper's intent and it is the kind of thing worth confirming with the
+author before anything is published on multi-channel manifolds.
+
+\subsection{The two-electron integrals}
+
+The integrals come from outside this file. \C{pao_3g} returns a three-Gaussian
+fit to the pseudo-atomic orbital for a given species and $\ell$, and
+\C{compute_eri} evaluates $(ab|cd)$ analytically over those Gaussians at four
+given centres. \C{hp_acbn0_orberi} is the small bookkeeping routine that walks
+the real-spherical-harmonic index: $1$ for $s$; $2,3,4$ for $p$; $5\ldots 9$ for
+$d$. It is a stateful cycler --- called once per $m$ inside each loop, it
+advances its argument, so the $m$-th orbital of the manifold gets the $m$-th
+harmonic index.
+
+This is also where the $s,p,d$-only restriction comes from: \C{pao_3g} has no
+$f$-shell fit and returns zero coefficients \emph{silently}, which would make
+every integral vanish and $U$ come out as $0/0$. Both check routines refuse
+$\ell > 2$ explicitly for that reason.
+
+% =====================================================================
+\section{Provenance: what is transplanted, what is new}
+
+\subsection{Transplanted from \texttt{PW/src/new\_ns\_v.f90}}
+
+\begin{center}\small
+\begin{tabular}{llrl}
+\toprule
+Our routine & From & Stmts & Role \\
+\midrule
+\C{hp_acbn0_ns_a0}    & \C{new_ns_a0} 233--635        & 176 & the $+U$ kernel \\
+\C{hp_acbn0_ns_e0_1}  & \C{new_ns_e0_1} 636--1808     & 577 & the $+U+V$ kernel \\
+\C{hp_acbn0_ns_v}     & \C{new_ns_v} 10--232          & 103 & occupation matrices alone \\
+\C{hp_acbn0_orberi}   & \C{orberi} 3780--3819         &  25 & harmonic index cycler \\
+\C{hp_acbn0_symm_n4}  & \C{symmetrize_n4} 2964--3167  &  86 & symmetrise $n(m_1,m_2,\sigma,I)$ \\
+\C{hp_acbn0_symm_n4m} & \C{symmetrize_n4m} 3168--3399 & 104 & ditto, magnetic \\
+\C{hp_acbn0_symm_n5}  & \C{symmetrize_n5} 3400--3779  & 174 & symmetrise the 6-index pair matrix \\
+\midrule
+\multicolumn{2}{l}{\textbf{total transplanted}} & \textbf{1245} & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+\textbf{How faithful.} The transplanted bodies were diffed against the fork by a
+script (\C{normdiff4.py}) that joins Fortran continuations into whole
+statements, strips comments, keeps only executable code, collapses the
+mechanical renames to common tokens, and canonicalises the intended systematic
+edits. \textbf{1245 statements, 18 differing}, in three classes:
+
+\begin{itemize}[leftmargin=1.3em,itemsep=2pt,topsep=3pt]
+\item 6 --- \C{hp_acbn0_orberi}'s dummy argument renamed \C{ehub_l}
+      $\rightarrow$ \C{lp1} (cosmetic; it is a dummy name).
+\item 8 --- the dropped \C{stop_acbn0} convergence short-circuit and its
+      \C{ehub_v_diff} bookkeeping. \C{hp.x} is one-shot and has no SCF history,
+      so there is nothing to short-circuit.
+\item 4 --- the two bug-fix guards (\S\ref{sec:bugs}).
+\end{itemize}
+
+\noindent
+\C{hp_acbn0_ns_a0} and \C{hp_acbn0_ns_v} come out at \textbf{zero}
+differences. The measurement is stronger than it looks: since stage V4 the
+canonicaliser no longer collapses the $m$ index, so every
+\C{ehub_l(m1,nt)} in the fork must match \C{lch(m1,nt)} here literally, index by
+index --- all 225 of them do.
+
+\subsection{Written here}
+
+\begin{center}\small
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\C{MODULE hp_acbn0_nn} & The neighbour table. Reproduces \C{hubbard_nns()} and
+the \C{nnnc} count from \C{input.f90:2144}, but built from \C{tau}/\C{at}/\C{alat}
+and a cutoff rather than read from \C{ldaV}. Also \C{hp_acbn0_symmetry} and
+\C{hp_acbn0_get_nnc}, from \C{PW/src/hubbard_nns.f90}. \\
+\addlinespace
+\C{MODULE hp_acbn0_man} & The manifold. Maps stock \C{ldaU}'s \C{ll(m,nt)},
+\C{ldim_u}, \C{ldmx_tot} and the three projector blocks
+(\C{offsetU}/\C{_back}/\C{_back1}) onto the contiguous view
+\C{lm}/\C{lch}/\C{ofs} that the kernels are written against. Entirely new ---
+\C{ldaV} stored the manifold contiguously, so the fork never needed it. \\
+\addlinespace
+drivers & \C{hp_acbn0}, \C{hp_acbn0_u}, \C{hp_acbn0_v}: buffer handling,
+\C{orthoUwfc}, \C{d_matrix}, allocation, cleanup. Replaces what \C{sum_band}
+did for the fork. \\
+\addlinespace
+guards & \C{hp_acbn0_check}, \C{hp_acbn0_check_v}: preconditions the kernels
+assume silently (ortho-atomic projectors, $n_{\rm spin}=2$, $s/p/d$ only,
+no \C{gamma_only}). Each of these fails as a \emph{wrong number} rather than a
+crash if unchecked. \\
+\addlinespace
+output & \C{hp_acbn0_write}, \C{_write_v}, \C{_print_uv}, \C{hp_acbn0_manlab}.
+\C{_print_uv} deliberately reproduces \C{pw.x}'s own table format so that every
+comparison is a plain \C{diff}. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Deliberately not transplanted}
+
+\C{new_ns_e0_2} (\C{acbn0_type = 3}) and the entire noncollinear set ---
+\C{new_ns_v_nc}, \C{new_ns_e0_nc_1}, \C{symmetrize_n4_nc}, \C{_n4m_nc},
+\C{_n5_nc}, roughly 2300 further lines. This is why the authors' GaAs reference,
+which is noncollinear with spin--orbit, remains unreachable.
+
+% =====================================================================
+\section{Four bugs found in the original}\label{sec:bugs}
+
+The fork's patch touches 60 files and \textbf{none is under \C{HP/}} --- ACBN0
+was implemented in \C{pw.x} only. \C{pw.x} initialises \C{MODULE ldaV} from two
+paths (the input file, and the XML); \C{hp.x} only ever walks the second. Every
+bug below is a consequence.
+
+\begin{description}[leftmargin=0pt,itemsep=5pt]
+\item[\textcolor{rust}{Bug 1 --- \C{remove_ehub_u} / \C{_v} undefined (silent).}]
+No initialiser in \C{ldaV.f90}; assigned only at \C{input.f90:2083}. The kernels
+multiply the final $U$ by them \emph{twice}. Undefined, this does not crash: it
+silently scales or zeroes every Hubbard parameter. Not hypothetical --- the
+authors' own \C{GaAs.acbn0.in_noncollienar} sets \C{remove_ehub_u(1,1) = 0}.
+
+\item[\textcolor{rust}{Bug 2 --- \C{iunwfc} closed at the insertion point (crash).}]
+\C{read_file} buffers the wavefunctions then closes the unit with
+\C{close_buffer(...,'KEEP')}. \C{'KEEP'} preserves the \emph{files}, but the call
+also deregisters the unit, so \C{get_buffer} falls through to \C{davcio} on a
+closed unit. Stock \C{hp.x} never trips this because DFPT reads through
+\C{iuwfc}, opened later.
+
+\item[\textcolor{rust}{Bug 3 --- \C{hubbard_get_nnc} returns an undefined index.}]
+\C{hubbard_nns.f90:241}. \C{nnc} is assigned only inside
+\C{IF (MAXVAL(...) == 1)}, so a cell carrying no neighbour pair falls through
+untouched. \C{hubbard_symmetry} then asks for the index of a \emph{rotated}
+cell, which need not be occupied, and \C{symmetrize_n5} indexes \C{n(nnc)} with
+whatever was on the stack. Silent in an optimised build whenever the garbage
+index lands in a mapped page; \C{-check bounds,uninit} named it at once.
+
+\item[\textcolor{rust}{Bug 4 --- \C{l_separation} writes one element before the array (latent, still live).}]
+In \C{symmetrize_n4}, \C{_n4m} and \C{_n5}, a type with no Hubbard manifold has
+\C{ehub_l(1,nt) = 0} and the next line writes \C{l_separation(0,nt)}. Dormant
+when every type is Hubbard-active --- true of NiO, MnO, ZnO, CdO, CrI$_3$ and
+GaAs --- and it fires the moment a spectator species is added.
+\end{description}
+
+\noindent
+Bugs 3 and 4 are the two guards that show up in the static diff. Bugs 1 and 2
+needed no guard: bug 1 disappears because \C{ldaU} has no such mask, and bug 2
+is handled by reopening the unit in the driver.
+
+% =====================================================================
+\section{Where to look in the file}
+
+\begin{center}\small
+\begin{tabular}{rll}
+\toprule
+Line & Routine & \\
+\midrule
+   1 & file header & the \C{ldaV} $\rightarrow$ \C{ldaU} translation table \\
+  94 & \C{MODULE hp_acbn0_nn} & neighbour table \\
+ 491 & \C{MODULE hp_acbn0_man} & manifold, and the \C{wfcU} column map \\
+ 704 & \C{hp_acbn0_u} & $+U$ driver \\
+ 790 & \C{hp_acbn0_check} & $+U$ preconditions \\
+ 890 & \C{hp_acbn0_write} & \C{eACBN0_hub.dat} \\
+1031 & \C{hp_acbn0_ns_a0} & \textbf{the $+U$ kernel} \\
+1436 & \C{hp_acbn0_symm_n4} & symmetrisation \\
+1648 & \C{hp_acbn0_orberi} & harmonic index cycler \\
+1701 & \C{hp_acbn0} & dispatcher on the \C{acbn0} tag \\
+1721 & \C{hp_acbn0_v} & $+U+V$ driver \\
+2215 & \C{hp_acbn0_ns_e0_1} & \textbf{the $+U+V$ kernel} \\
+3372 & \C{hp_acbn0_ns_v} & occupation matrices alone \\
+3596 & \C{hp_acbn0_symm_n4m}, 3839 \C{_n5} & symmetrisation \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+4234 lines, two modules, 22 subroutines and one function. Seven other files in
+\C{HP/src/} carry small edits: \C{hpcom.f90} (two variables),
+\C{hp_readin.f90} (namelist, defaults, four relaxed DFPT guards),
+\C{hp_bcast_input.f90} (two broadcasts), \C{hp_main.f90} (the dispatch, placed
+above \C{hp_init}), \C{hp_print_clock.f90}, \C{Makefile}, \C{make.depend}.
+
+% =====================================================================
+\section{Two things I would change}
+
+\noindent
+\textbf{Stale guard exemptions in \C{hp_readin.f90}.} Three guards are written
+\C{.AND. acbn0 /= 2}, which was correct at stage V2 when the $+V$ branch still
+ran on \C{ldaV}. Since V3 it runs on \C{ldaU} and \emph{does} need
+\C{lda_plus_u}, ortho-atomic projectors and \C{lda_plus_u_kind} $\neq 1$. Not a
+correctness bug --- all three are backstopped by \C{hp_acbn0_check_v}, so a bad
+input gets a clear error rather than a wrong number --- but the exemptions are
+dead weight and the comments are two stages out of date.
+
+\smallskip
+\noindent
+\textbf{\C{remove_ehub_u} has no route in.} It is input-only and is not
+round-tripped through the XML, so we omit the factors entirely --- exactly
+equivalent whenever the \C{pw.x} run used the documented default of 1, and
+wrong for any run that masks a channel, as the authors' GaAs input does. The fix
+is one \C{\&INPUTHP} tag.
+
+\vspace{8pt}
+\noindent\textcolor{rule}{\rule{\textwidth}{0.8pt}}
+\vspace{2pt}
+
+\noindent\footnotesize\color{mute}
+Companion documents: \C{REPORT-eacbn0-hpx.pdf} (validation), \C{slides.html}
+(group meeting), \C{logs/260901-eacbn0-hpx.txt} and \C{logs/260904-eacbn0-v4.txt}
+(session logs). The faithfulness measurement is re-runnable:
+\C{python3 normdiff4.py}.
+
+\end{document}
