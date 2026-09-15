@@ -149,7 +149,6 @@ SUBROUTINE input_sanity()
   USE xc_lib,           ONLY : xclib_dft_is
   USE ldaU,             ONLY : lda_plus_u, Hubbard_projectors, lda_plus_u_kind, Hubbard_J0, &
                                Hubbard_V, is_hubbard_back
-  USE ldaV,             ONLY : lda_plus_v
   !
   IMPLICIT NONE
   !
@@ -219,30 +218,29 @@ SUBROUTINE input_sanity()
      & 'Cannot start from pw.x data file using Gamma-point tricks',1)
   !
   ! lda_plus_u: required by DFPT and by acbn0 = 1, which projects with ldaU's
-  ! wfcU / offsetU / Hubbard_l.  acbn0 = 2 is still on ldaV bookkeeping and
-  ! needs lda_plus_v instead - the authors' inputs (MnO.acbn0.in,
-  ! GaAs.acbn0.in) carry no HUBBARD card at all.
+  ! wfcU / offsetU / Hubbard_l.  Since stage V3 acbn0 = 2 reads the manifold
+  ! from ldaU as well, so it needs a HUBBARD card too; the exemption below is
+  ! left over from stage V2 and is backstopped by hp_acbn0_check_v.
   !
   IF (.NOT.lda_plus_u .AND. acbn0 /= 2) CALL errore('hp_readin',&
      & 'The HP code can be used only on top of DFT+Hubbard (i.e. when the HUBBARD card is used in pw.x)',1)
   !
   ! acbn0 = 2 needs an inter-site cutoff d_IJ.  Since V3 the +V branch owns
-  ! its own neighbour table, so the cutoff can come straight from &INPUTHP;
-  ! when it does not, fall back to the ehub_nn_distance stored in the XML,
-  ! which exists only if the pw.x run carried the fork's lda_plus_v.
+  ! its own neighbour table, so the cutoff comes from &INPUTHP and from
+  ! nowhere else.  The old fallback to ehub_nn_distance in the XML is gone:
+  ! that field exists only for a ground state made by the Lee-Son pw.x, and
+  ! this code must build against an unpatched QE 7.3 where ldaV is absent.
   !
-  IF (acbn0 == 2 .AND. nn_distance < 0.0D0 .AND. .NOT.lda_plus_v) &
-     CALL errore('hp_readin', 'acbn0 = 2 on a stock DFT+U ground state needs &
-     &an inter-site cutoff: set nn_distance (in Angstrom) in &INPUTHP.  It is &
-     &optional only when the pw.x run carried lda_plus_v, in which case &
-     &ehub_nn_distance is taken from the XML.',1)
+  IF (acbn0 == 2 .AND. nn_distance < 0.0D0) &
+     CALL errore('hp_readin', 'acbn0 = 2 needs an inter-site cutoff: set &
+     &nn_distance (in Angstrom) in &INPUTHP.',1)
   !
   IF (nn_distance > 20.0D0) CALL errore('hp_readin', &
      ' nn_distance is unreasonably large (> 20 Angstrom) ',1)
   !
   ! lda_plus_u_kind = 1 is the Liechtenstein DFT+U+J formulation.  It changes
-  ! the DFPT response and the ldaU projectors; it has no bearing on the ldaV
-  ! bookkeeping that acbn0 = 2 uses.
+  ! the DFPT response and the ldaU projectors.  The acbn0 /= 2 exemption
+  ! below is stage-V2 residue, backstopped by hp_acbn0_check_v.
   !
   IF (lda_plus_u_kind.EQ.1 .AND. acbn0 /= 2) CALL errore("hp_readin", &
      & ' The HP code does not support the Liechtenstein formulation of DFT+U',1)

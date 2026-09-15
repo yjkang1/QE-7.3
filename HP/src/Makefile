@@ -9,6 +9,9 @@ MODFLAGS= $(BASEMOD_FLAGS) \
           $(MOD_FLAG)../../LR_Modules
 HPOBJS = \
 eACBN0.o \
+hp_acbn0_crys.o \
+hp_acbn0_eri.o \
+hp_acbn0_pao.o \
 hp_allocate_q.o \
 hp_bcast_input.o \
 hpcom.o \

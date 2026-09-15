@@ -384,7 +384,7 @@ CONTAINS
       !
       IF ( diff > eps ) THEN
          WRITE(*,*) "diff > 0, diff= ", diff, "atom1= ", atom1, "atom2= ", atom2
-         CALL errore('hubbard_symmetry', 'No atom equivalent to x2', 1)
+         CALL errore('hp_acbn0_symmetry', 'No atom equivalent to x2', 1)
       ENDIF
       !
       opatom2 = na - 1
@@ -412,7 +412,7 @@ CONTAINS
       !
       IF ( diff > eps ) THEN
         WRITE(*,*) "diff > 0, diff= ", diff, "atom1= ", atom1, "atom2= ", atom2
-        CALL errore('hubbard_symmetry', 'No atom equivalent to x1', 1)
+        CALL errore('hp_acbn0_symmetry', 'No atom equivalent to x1', 1)
       ENDIF
       !
       opatom1 = na - 1
@@ -422,7 +422,7 @@ CONTAINS
          opn(i) = NINT(x2(i) - xd(i,opatom2))
       ENDDO
       !
-      CALL hubbard_get_nnc(opn,nnc)
+      CALL hp_acbn0_get_nnc(opn,nnc)
       !
       RETURN
       !
@@ -839,20 +839,20 @@ SUBROUTINE hp_acbn0_check()
         'backall is set for this type but Hubbard_l3 was never set.', nt )
   ENDDO
   !
-  ! f manifolds: pao_3g carries 3-Gaussian PAO fits for s, p and d only, and
+  ! f manifolds: hp_acbn0_pao_3g carries 3-Gaussian PAO fits for s, p and d only, and
   ! returns c = 0 without complaining for anything else - which would make
   ! every eri vanish and U come out as 0/0.
   !
   DO nt = 1, ntyp
      IF ( is_hubbard(nt) .AND. Hubbard_l(nt) > 2 ) CALL errore( 'hp_acbn0_check', &
-        'ACBN0 is implemented for s, p and d manifolds only: pao_3g has no &
+        'ACBN0 is implemented for s, p and d manifolds only: hp_acbn0_pao_3g has no &
         &f-shell Gaussian fit and returns zero coefficients silently.', nt )
      IF ( is_hubbard_back(nt) ) THEN
         IF ( Hubbard_l2(nt) > 2 ) CALL errore( 'hp_acbn0_check', &
-           'background channel Hubbard_l2 is an f manifold; pao_3g has no &
+           'background channel Hubbard_l2 is an f manifold; hp_acbn0_pao_3g has no &
            &f-shell fit.', nt )
         IF ( backall(nt) .AND. Hubbard_l3(nt) > 2 ) CALL errore( 'hp_acbn0_check', &
-           'background channel Hubbard_l3 is an f manifold; pao_3g has no &
+           'background channel Hubbard_l3 is an f manifold; hp_acbn0_pao_3g has no &
            &f-shell fit.', nt )
      ENDIF
   ENDDO
@@ -1075,7 +1075,7 @@ SUBROUTINE hp_acbn0_ns_a0(ns, hub_u)
 
   REAL(DP),    ALLOCATABLE :: hub_u_(:,:,:)
 
-  REAL(DP), EXTERNAL       :: compute_eri
+  REAL(DP), EXTERNAL       :: hp_acbn0_compute_eri
   REAL(DP)                 :: c1(6), c2(6), c3(6), c4(6)
 
   INTEGER                  :: i, ik, ibnd, is, npw
@@ -1277,31 +1277,31 @@ SUBROUTINE hp_acbn0_ns_a0(ns, hub_u)
      l1 = 0
      DO m1 = 1, lm(nt)
         CALL hp_acbn0_orberi(lch(m1,nt), l1)
-        CALL pao_3g(upf(nt)%psd, lch(m1,nt), c1)
+        CALL hp_acbn0_pao_3g(upf(nt)%psd, lch(m1,nt), c1)
         !
      l2 = 0
      DO m2 = 1, lm(nt)
         CALL hp_acbn0_orberi(lch(m2,nt), l2)
-        CALL pao_3g(upf(nt)%psd, lch(m2,nt), c2)
+        CALL hp_acbn0_pao_3g(upf(nt)%psd, lch(m2,nt), c2)
         !
      l3 = 0
      DO m3 = 1, lm(nt)
         IF ( lch(m3,nt) /= lch(m1,nt) ) CYCLE
         CALL hp_acbn0_orberi(lch(m3,nt), l3)
-        CALL pao_3g(upf(nt)%psd, lch(m3,nt), c3)
+        CALL hp_acbn0_pao_3g(upf(nt)%psd, lch(m3,nt), c3)
         !
      l4 = 0
      DO m4 = 1, lm(nt)
         IF ( lch(m4,nt) /= lch(m2,nt) ) CYCLE
         CALL hp_acbn0_orberi(lch(m4,nt), l4)
-        CALL pao_3g(upf(nt)%psd, lch(m4,nt), c4)
+        CALL hp_acbn0_pao_3g(upf(nt)%psd, lch(m4,nt), c4)
         !
         IF ( lch(m1,nt) == 1 .AND. lch(m2,nt) == 1 ) THEN
               A0%U(lch(m1,nt),lch(m2,nt),na)  = &
               A0%U(lch(m1,nt),lch(m2,nt),na)  + &
                   (p%O(m3,m1,1,na)*p%O(m4,m2,2,na)  + &
                    p%O(m3,m1,2,na)*p%O(m4,m2,1,na)) * &
-                          compute_eri(l3,l1,l4,l2,    &
+                          hp_acbn0_compute_eri(l3,l1,l4,l2,    &
                     tau(:,na)*alat,tau(:,na)*alat,    &
                     tau(:,na)*alat,tau(:,na)*alat,    &
                                       c3,c1,c4,c2)
@@ -1312,7 +1312,7 @@ SUBROUTINE hp_acbn0_ns_a0(ns, hub_u)
                    p%O(m3,m1,2,na)*p%O(m4,m2,2,na)  + &
                    p%O(m3,m1,1,na)*p%O(m4,m2,2,na)  + &
                    p%O(m3,m1,2,na)*p%O(m4,m2,1,na)) * &
-                          compute_eri(l3,l1,l4,l2,    &
+                          hp_acbn0_compute_eri(l3,l1,l4,l2,    &
                     tau(:,na)*alat,tau(:,na)*alat,    &
                     tau(:,na)*alat,tau(:,na)*alat,    &
                                       c3,c1,c4,c2)
@@ -1320,7 +1320,7 @@ SUBROUTINE hp_acbn0_ns_a0(ns, hub_u)
               A0%J(lch(m1,nt),lch(m2,nt),na)  + &
                   (p%O(m3,m1,1,na)*p%O(m4,m2,1,na)  + &
                    p%O(m3,m1,2,na)*p%O(m4,m2,2,na)) * &
-                          compute_eri(l3,l2,l4,l1,    &
+                          hp_acbn0_compute_eri(l3,l2,l4,l1,    &
                     tau(:,na)*alat,tau(:,na)*alat,    &
                     tau(:,na)*alat,tau(:,na)*alat,    &
                                       c3,c2,c4,c1)
@@ -1733,10 +1733,11 @@ SUBROUTINE hp_acbn0_v()
   ! - so U_ACBN0, V_ACBN0 and U_DFPT all come from a single pw.x run.
   !
   ! The cutoff d_IJ (Lee & Son, PRR 2, 043410 (2020)) is taken from the
-  ! &INPUTHP tag nn_distance.  If that was left unset we fall back to the
-  ! ehub_nn_distance recorded in the XML, which exists only when the pw.x run
-  ! carried the fork's lda_plus_v - that fallback is the ONLY remaining ldaV
-  ! reference in this file, and it reads a stored input value, not bookkeeping.
+  ! &INPUTHP tag nn_distance, and from nowhere else.  Earlier stages fell back
+  ! to ehub_nn_distance in the XML, which exists only for a ground state made
+  ! by the Lee-Son pw.x; that fallback is gone, because this file must build
+  ! and run against an unpatched QE 7.3 where MODULE ldaV does not exist.
+  ! hp_readin refuses acbn0 = 2 without nn_distance.
   !
   USE kinds,            ONLY : DP
   USE io_global,        ONLY : stdout
@@ -1749,7 +1750,6 @@ SUBROUTINE hp_acbn0_v()
   USE noncollin_module, ONLY : npol
   USE symm_base,        ONLY : d1, d2, d3
   USE ldaU,             ONLY : Hubbard_lmax, nwfcU
-  USE ldaV,             ONLY : lda_plus_v, ehub_nn_distance
   USE ldaU_hp,          ONLY : nn_distance
   USE hp_acbn0_nn,      ONLY : hp_acbn0_build_nn, hp_acbn0_free_nn, nnnc
   USE hp_acbn0_man,         ONLY : lm_max, hp_acbn0_build_man, &
@@ -1782,13 +1782,11 @@ SUBROUTINE hp_acbn0_v()
   ! Inter-site cutoff.  hp_readin has already refused the case where neither
   ! source is available.
   !
-  IF ( nn_distance >= 0.0_DP ) THEN
-     dist = nn_distance
-     WRITE( stdout, '(5x,"inter-site cutoff from &INPUTHP: nn_distance = ",f6.3," A")') dist
-  ELSE
-     dist = ehub_nn_distance
-     WRITE( stdout, '(5x,"inter-site cutoff from the XML: ehub_nn_distance = ",f6.3," A")') dist
-  ENDIF
+  IF ( nn_distance < 0.0_DP ) CALL errore('hp_acbn0_v', &
+     'acbn0 = 2 needs the inter-site cutoff: set nn_distance (Angstrom) in &INPUTHP', 1)
+  !
+  dist = nn_distance
+  WRITE( stdout, '(5x,"inter-site cutoff from &INPUTHP: nn_distance = ",f6.3," A")') dist
   !
   CALL hp_acbn0_build_nn( dist )
   !
@@ -1890,20 +1888,20 @@ SUBROUTINE hp_acbn0_check_v()
         'backall is set for this type but Hubbard_l3 was never set.', nt )
   ENDDO
   !
-  ! f manifolds: pao_3g carries 3-Gaussian PAO fits for s, p and d only and
+  ! f manifolds: hp_acbn0_pao_3g carries 3-Gaussian PAO fits for s, p and d only and
   ! returns c = 0 without complaining for anything else, which would make
   ! every eri vanish and U come out as 0/0.
   !
   DO nt = 1, ntyp
      IF ( is_hubbard(nt) .AND. Hubbard_l(nt) > 2 ) CALL errore( 'hp_acbn0_check_v', &
-        'eACBN0 is implemented for s, p and d manifolds only: pao_3g has no &
+        'eACBN0 is implemented for s, p and d manifolds only: hp_acbn0_pao_3g has no &
         &f-shell Gaussian fit and returns zero coefficients silently.', nt )
      IF ( is_hubbard_back(nt) ) THEN
         IF ( Hubbard_l2(nt) > 2 ) CALL errore( 'hp_acbn0_check_v', &
-           'background channel Hubbard_l2 is an f manifold; pao_3g has no &
+           'background channel Hubbard_l2 is an f manifold; hp_acbn0_pao_3g has no &
            &f-shell fit.', nt )
         IF ( backall(nt) .AND. Hubbard_l3(nt) > 2 ) CALL errore( 'hp_acbn0_check_v', &
-           'background channel Hubbard_l3 is an f manifold; pao_3g has no &
+           'background channel Hubbard_l3 is an f manifold; hp_acbn0_pao_3g has no &
            &f-shell fit.', nt )
      ENDIF
   ENDDO
@@ -2277,7 +2275,7 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
 
   REAL(DP)                 :: arg
   REAL(DP)                 :: ntau(3,nat)
-  REAL(DP)                 :: compute_eri
+  REAL(DP), EXTERNAL       :: hp_acbn0_compute_eri
   REAL(DP)                 :: c1(6), c2(6), c3(6), c4(6)
 
   INTEGER                  :: npw, nw
@@ -2834,31 +2832,31 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
      l1 = 0
      DO m1 = 1, lm(nt)
         CALL hp_acbn0_orberi(lch(m1,nt), l1)
-        CALL pao_3g(upf(nt)%psd, lch(m1,nt), c1)
+        CALL hp_acbn0_pao_3g(upf(nt)%psd, lch(m1,nt), c1)
         !
      l2 = 0
      DO m2 = 1, lm(nt)
         CALL hp_acbn0_orberi(lch(m2,nt), l2)
-        CALL pao_3g(upf(nt)%psd, lch(m2,nt), c2)
+        CALL hp_acbn0_pao_3g(upf(nt)%psd, lch(m2,nt), c2)
         !
      l3 = 0
      DO m3 = 1, lm(nt)
         IF ( lch(m3,nt) /= lch(m1,nt) ) CYCLE
         CALL hp_acbn0_orberi(lch(m3,nt), l3)
-        CALL pao_3g(upf(nt)%psd, lch(m3,nt), c3)
+        CALL hp_acbn0_pao_3g(upf(nt)%psd, lch(m3,nt), c3)
         !
      l4 = 0
      DO m4 = 1, lm(nt)
         IF ( lch(m4,nt) /= lch(m2,nt) ) CYCLE
         CALL hp_acbn0_orberi(lch(m4,nt), l4)
-        CALL pao_3g(upf(nt)%psd, lch(m4,nt), c4)
+        CALL hp_acbn0_pao_3g(upf(nt)%psd, lch(m4,nt), c4)
         !
         IF ( lch(m1,nt) == 1 .AND. lch(m2,nt) == 1 ) THEN
            E0(1)%V(lch(m1,nt),lch(m2,nt),na,na)  = &
            E0(1)%V(lch(m1,nt),lch(m2,nt),na,na)  + &
                  (dm0%O(m3,m1,1,na)*dm0%O(m4,m2,2,na)  + &
                   dm0%O(m3,m1,2,na)*dm0%O(m4,m2,1,na)) * &
-                             compute_eri(l3,l1,l4,l2,    &
+                             hp_acbn0_compute_eri(l3,l1,l4,l2,    &
                        tau(:,na)*alat,tau(:,na)*alat,    &
                        tau(:,na)*alat,tau(:,na)*alat,    &
                                          c3,c1,c4,c2)
@@ -2869,7 +2867,7 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
                   dm0%O(m3,m1,2,na)*dm0%O(m4,m2,2,na)  + &
                   dm0%O(m3,m1,1,na)*dm0%O(m4,m2,2,na)  + &
                   dm0%O(m3,m1,2,na)*dm0%O(m4,m2,1,na)) * &
-                             compute_eri(l3,l1,l4,l2,    &
+                             hp_acbn0_compute_eri(l3,l1,l4,l2,    &
                        tau(:,na)*alat,tau(:,na)*alat,    &
                        tau(:,na)*alat,tau(:,na)*alat,    &
                                          c3,c1,c4,c2)
@@ -2878,7 +2876,7 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
            E0(1)%J(lch(m1,nt),lch(m2,nt),na,na)  + &
                  (dm0%O(m3,m1,1,na)*dm0%O(m4,m2,1,na)  + &
                   dm0%O(m3,m1,2,na)*dm0%O(m4,m2,2,na)) * &
-                             compute_eri(l3,l2,l4,l1,    &
+                             hp_acbn0_compute_eri(l3,l2,l4,l1,    &
                        tau(:,na)*alat,tau(:,na)*alat,    &
                        tau(:,na)*alat,tau(:,na)*alat,    &
                                          c3,c2,c4,c1)
@@ -2981,24 +2979,24 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
      l1 = 0
      DO m1 = 1, lm(nt1)
         CALL hp_acbn0_orberi(lch(m1,nt1), l1)
-        CALL pao_3g(upf(nt1)%psd, lch(m1,nt1), c1)
+        CALL hp_acbn0_pao_3g(upf(nt1)%psd, lch(m1,nt1), c1)
         !
      l2 = 0
      DO m2 = 1, lm(nt2)
         CALL hp_acbn0_orberi(lch(m2,nt2), l2)
-        CALL pao_3g(upf(nt2)%psd, lch(m2,nt2), c2)
+        CALL hp_acbn0_pao_3g(upf(nt2)%psd, lch(m2,nt2), c2)
         !
      l3 = 0
      DO m3 = 1, lm(nt1)
         IF ( lch(m3,nt1) /= lch(m1,nt1) ) CYCLE
         CALL hp_acbn0_orberi(lch(m3,nt1), l3)
-        CALL pao_3g(upf(nt1)%psd, lch(m3,nt1), c3)
+        CALL hp_acbn0_pao_3g(upf(nt1)%psd, lch(m3,nt1), c3)
         !
      l4 = 0
      DO m4 = 1, lm(nt2)
         IF ( lch(m4,nt2) /= lch(m2,nt2) ) CYCLE
         CALL hp_acbn0_orberi(lch(m4,nt2), l4)
-        CALL pao_3g(upf(nt2)%psd, lch(m4,nt2), c4)
+        CALL hp_acbn0_pao_3g(upf(nt2)%psd, lch(m4,nt2), c4)
         !
         E0(1)%V(lch(m1,nt1),lch(m2,nt2),na1,na2)  = &
         E0(1)%V(lch(m1,nt1),lch(m2,nt2),na1,na2)  + &
@@ -3014,7 +3012,7 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
                                p(1)%O(m4,m1,1,na2,na1)  - &
                                p(1)%O(m3,m2,2,na1,na2)  * &
                                p(1)%O(m4,m1,2,na2,na1)) * &
-                              compute_eri(l3,l1,l4,l2,    &
+                              hp_acbn0_compute_eri(l3,l1,l4,l2,    &
                       tau(:,na1)*alat,tau(:,na1)*alat,    &
                       tau(:,na2)*alat,tau(:,na2)*alat,    &
                                           c3,c1,c4,c2)
@@ -3167,24 +3165,24 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
         l1 = 0
         DO m1 = 1, lm(nt1)
            CALL hp_acbn0_orberi(lch(m1,nt1), l1)
-           CALL pao_3g(upf(nt1)%psd, lch(m1,nt1), c1)
+           CALL hp_acbn0_pao_3g(upf(nt1)%psd, lch(m1,nt1), c1)
            !
         l2 = 0
         DO m2 = 1, lm(nt2)
            CALL hp_acbn0_orberi(lch(m2,nt2), l2)
-           CALL pao_3g(upf(nt2)%psd, lch(m2,nt2), c2)
+           CALL hp_acbn0_pao_3g(upf(nt2)%psd, lch(m2,nt2), c2)
            !
         l3 = 0
         DO m3 = 1, lm(nt1)
            IF ( lch(m3,nt1) /= lch(m1,nt1) ) CYCLE
            CALL hp_acbn0_orberi(lch(m3,nt1), l3)
-           CALL pao_3g(upf(nt1)%psd, lch(m3,nt1), c3)
+           CALL hp_acbn0_pao_3g(upf(nt1)%psd, lch(m3,nt1), c3)
            !
         l4 = 0
         DO m4 = 1, lm(nt2)
            IF ( lch(m4,nt2) /= lch(m2,nt2) ) CYCLE
            CALL hp_acbn0_orberi(lch(m4,nt2), l4)
-           CALL pao_3g(upf(nt2)%psd, lch(m4,nt2), c4)
+           CALL hp_acbn0_pao_3g(upf(nt2)%psd, lch(m4,nt2), c4)
            !
            E0(nnc)%V(lch(m1,nt1),lch(m2,nt2),na1,na2)  = &
            E0(nnc)%V(lch(m1,nt1),lch(m2,nt2),na1,na2)  + &
@@ -3200,7 +3198,7 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
                                   p(nnc)%O(m1,m4,1,na1,na2)  - &
                                   p(nnc)%O(m3,m2,2,na1,na2)  * &
                                   p(nnc)%O(m1,m4,2,na1,na2)) * &
-                                   compute_eri(l3,l1,l4,l2,    &
+                                   hp_acbn0_compute_eri(l3,l1,l4,l2,    &
                           tau(:,na1)*alat, tau(:,na1)*alat,    &
                          ntau(:,na2)*alat,ntau(:,na2)*alat,    &
                                                c3,c1,c4,c2)
