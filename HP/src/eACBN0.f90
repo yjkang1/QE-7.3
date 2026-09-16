@@ -48,7 +48,8 @@
 !      orthowfcv()                 orthoUwfc(.FALSE.)          idem
 !      copy_v_wfc                  copy_U_wfc                  (inside those)
 !      ehub_u(na,m1,m2)            -                           hub_u argument
-!      remove_ehub_u(nt,l+1)       -                           remove_u (ldaU_hp)
+!      ehub_l_choice(nt,l+1)       -                           acbn0_l_choice (ldaU_hp)
+!      remove_ehub_u(nt,l+1)       -                           acbn0_rm_ehub_u (ldaU_hp, 1 = remove)
 !
 !  Stages S3 and V3 collapsed ehub_l(m,nt) to the scalar Hubbard_l(nt)+1,
 !  which is correct only while a type carries ONE channel, and multi-channel
@@ -807,9 +808,9 @@ SUBROUTINE hp_acbn0_check()
   INTEGER :: nt, nath
   !
   IF ( .NOT.lda_plus_u ) CALL errore( 'hp_acbn0_check', &
-     'acbn0 > 0 needs a Hubbard manifold, but none was declared: set &
-     &acbn0_manifold(nt) in &INPUTHP (the pw.x ground state itself must be &
-     &a plain non-Hubbard SCF).', 1 )
+     'acbn0 > 0 needs a Hubbard manifold, but none was selected: set &
+     &acbn0_l_choice(nt,b) = 1 in &INPUTHP (the pw.x ground state itself must &
+     &be a plain non-Hubbard SCF).', 1 )
   !
   ! ortho-atomic is a requirement, not a preference: ACBN0's occupation
   ! ratio is derived for an orthonormal projector basis.  Note the change
@@ -1053,7 +1054,7 @@ SUBROUTINE hp_acbn0_ns_a0(ns, hub_u)
                                    deallocate_bec_type
   USE uspp_param,           ONLY : upf
   USE hp_acbn0_man,         ONLY : lm_max, lm, lch, ofs
-  USE ldaU_hp,              ONLY : remove_u
+  USE ldaU_hp,              ONLY : acbn0_rm_ehub_u
 
   IMPLICIT NONE
 
@@ -1398,14 +1399,16 @@ SUBROUTINE hp_acbn0_ns_a0(ns, hub_u)
                               HF%J(lch(m1,nt),lch(m2,nt),na)
         ENDIF
         !
-        ! One-shot (no mixing).  remove_u is Lee & Son's remove_ehub_u,
-        ! applied exactly as new_ns_v.f90:1362 does - a product over both
-        ! channel indices, on the on-site block only, AFTER the ratio is
-        ! formed.  The channel stays in the manifold, so the N^IJ weights
-        ! and the ERI sums above are untouched.
+        ! One-shot (no mixing).  acbn0_rm_ehub_u is Lee & Son's
+        ! remove_ehub_u with the flag inverted (1 = remove), applied exactly
+        ! as new_ns_v.f90:1362 does - a product over both channel indices,
+        ! on the on-site block only, AFTER the ratio is formed.  The channel
+        ! stays in the manifold, so the N^IJ weights and the ERI sums above
+        ! are untouched.
         !
-        hub_u(na,m1,m2) = hub_u_(na,m1,m2) * remove_u(nt,lch(m1,nt)) &
-                                           * remove_u(nt,lch(m2,nt))
+        hub_u(na,m1,m2) = hub_u_(na,m1,m2)                              &
+                        * DBLE( 1 - acbn0_rm_ehub_u(nt,lch(m1,nt)) )    &
+                        * DBLE( 1 - acbn0_rm_ehub_u(nt,lch(m2,nt)) )
         !
      ENDDO ! m2
      ENDDO ! m1
@@ -1864,9 +1867,9 @@ SUBROUTINE hp_acbn0_check_v()
   INTEGER :: nt, nath
   !
   IF ( .NOT.lda_plus_u ) CALL errore( 'hp_acbn0_check_v', &
-     'acbn0 > 0 needs a Hubbard manifold, but none was declared: set &
-     &acbn0_manifold(nt) in &INPUTHP (the pw.x ground state itself must be &
-     &a plain non-Hubbard SCF).', 1 )
+     'acbn0 > 0 needs a Hubbard manifold, but none was selected: set &
+     &acbn0_l_choice(nt,b) = 1 in &INPUTHP (the pw.x ground state itself must &
+     &be a plain non-Hubbard SCF).', 1 )
   !
   ! ortho-atomic is a requirement, not a preference: the ACBN0 ratio is
   ! derived for an orthonormal projector basis.  orthoUwfc honours the input
@@ -2245,7 +2248,7 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
                                    deallocate_bec_type
   USE uspp_param,           ONLY : upf
   USE hp_acbn0_man,         ONLY : lm_max, lm, lch, ofs
-  USE ldaU_hp,              ONLY : remove_u
+  USE ldaU_hp,              ONLY : acbn0_rm_ehub_u
 
   IMPLICIT NONE
 
@@ -2958,15 +2961,17 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
                                  HF(1)%J(lch(m1,nt),lch(m2,nt),na,na)
         ENDIF
         !
-        ! One-shot (no mixing).  remove_u is Lee & Son's remove_ehub_u,
-        ! applied exactly as new_ns_v.f90:1362-1371 does - a product over
-        ! both channel indices, on the on-site block only, AFTER the ratio
-        ! is formed.  V (every na1 /= na2 or nnc > 1 block) is never masked;
-        ! the channel stays in the manifold, so the N^IJ weights and the ERI
-        ! sums above are untouched.
+        ! One-shot (no mixing).  acbn0_rm_ehub_u is Lee & Son's
+        ! remove_ehub_u with the flag inverted (1 = remove), applied exactly
+        ! as new_ns_v.f90:1362-1371 does - a product over both channel
+        ! indices, on the on-site block only, AFTER the ratio is formed.
+        ! V (every na1 /= na2 or nnc > 1 block) is never masked; the channel
+        ! stays in the manifold, so the N^IJ weights and the ERI sums above
+        ! are untouched.
         !
-        hub_v(na,na,m1,m2,1) = hub_v_(na,na,m1,m2) * remove_u(nt,lch(m1,nt)) &
-                                                   * remove_u(nt,lch(m2,nt))
+        hub_v(na,na,m1,m2,1) = hub_v_(na,na,m1,m2)                          &
+                             * DBLE( 1 - acbn0_rm_ehub_u(nt,lch(m1,nt)) )    &
+                             * DBLE( 1 - acbn0_rm_ehub_u(nt,lch(m2,nt)) )
         !
      ENDDO ! m2
      ENDDO ! m1

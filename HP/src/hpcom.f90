@@ -101,26 +101,29 @@ MODULE ldaU_hp
   REAL(DP) :: nn_distance                   ! Inter-site cutoff d_IJ in Angstrom for
                                             ! acbn0 = 2.  Must be set in &INPUTHP.
   !
-  CHARACTER(LEN=3) :: acbn0_manifold(ntypx)  ! Hubbard manifold per atomic type, as
-                                             ! '3d', '2p', ... .  Lets acbn0 > 0 run on
-                                             ! a ground state whose pw.x input carried
-                                             ! NO HUBBARD card: hp.x then declares the
-                                             ! manifold itself and calls init_hubbard.
-                                             ! Blank (default) = take it from the XML.
-  CHARACTER(LEN=3) :: acbn0_manifold2(ntypx) ! Second (background) channel, same syntax,
-                                             ! e.g. Ga '4s' + '4p'.  Optional.
+  INTEGER :: acbn0_l_choice(ntypx,6)         ! Lee & Son's ehub_l_choice(a,b).  a = atomic
+                                             ! type, b = l+1 (1 = s, 2 = p, 3 = d); set 1 to
+                                             ! put that channel of type a in the Hubbard
+                                             ! manifold.  Default 0.  For each l the
+                                             ! valence (highest-n) PP_CHI channel is taken,
+                                             ! as ldaV does; channels are ordered as in the
+                                             ! pseudopotential, again as ldaV does.  Up to
+                                             ! three channels per type (stock QE's main +
+                                             ! two background blocks).  hp.x declares the
+                                             ! manifold from this and calls init_hubbard;
+                                             ! the pw.x ground state must carry no HUBBARD
+                                             ! card.
   !
-  INTEGER :: remove_u(ntypx,6)               ! Lee & Son's remove_ehub_u(a,b).  Mask on
-                                             ! the ON-SITE U only: remove_u(nt,l+1) = 0
-                                             ! (1 = s, 2 = p, 3 = d, the same l+1
-                                             ! convention as ehub_l_choice) zeroes every
-                                             ! on-site element of type nt with EITHER
-                                             ! index in that channel - applied as a
-                                             ! product over both indices, so the whole
-                                             ! row and column go, not just the diagonal.
+  INTEGER :: acbn0_rm_ehub_u(ntypx,6)        ! Lee & Son's remove_ehub_u(a,b), with the
+                                             ! flag read the natural way: 1 = REMOVE the
+                                             ! on-site U of channel b (= l+1) of type a,
+                                             ! 0 = keep (default).  Mask on the on-site U
+                                             ! only, applied as a product over both
+                                             ! channel indices after the ACBN0 ratio is
+                                             ! formed, so the whole row and column go.
                                              ! Never touches V, the N^IJ weights or the
                                              ! renormalised density matrices; the channel
-                                             ! stays in the manifold.  Default 1 (keep).
+                                             ! stays in the manifold.
   !
   REAL(DP) :: conv_thr_chi,      &          ! Threshold for the calculation of chi 
               thresh_init,       &          ! Initial threshold for the solution of 

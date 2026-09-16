@@ -28,8 +28,7 @@ SUBROUTINE hp_bcast_input ( )
                                determine_num_pert_only, skip_equivalence_q, niter_max, &
                                disable_type_analysis, docc_thr, num_neigh, lmin, rmax, &
                                nmix, nq1, nq2, nq3, dist_thr, determine_q_mesh_only, &
-                               acbn0, nn_distance, acbn0_manifold, acbn0_manifold2, &
-                               remove_u
+                               acbn0, nn_distance, acbn0_l_choice, acbn0_rm_ehub_u
   !
   IMPLICIT NONE
   !
@@ -63,7 +62,8 @@ SUBROUTINE hp_bcast_input ( )
   CALL mp_bcast (lmin, meta_ionode_id, world_comm)
   CALL mp_bcast (acbn0, meta_ionode_id, world_comm)
   CALL mp_bcast (nn_distance, meta_ionode_id, world_comm)
-  CALL mp_bcast (remove_u, meta_ionode_id, world_comm)
+  CALL mp_bcast (acbn0_l_choice, meta_ionode_id, world_comm)
+  CALL mp_bcast (acbn0_rm_ehub_u, meta_ionode_id, world_comm)
   !
   ! Real*8
   !
@@ -79,8 +79,6 @@ SUBROUTINE hp_bcast_input ( )
   ! Characters
   !
   CALL mp_bcast (prefix, meta_ionode_id, world_comm)
-  CALL mp_bcast (acbn0_manifold,  meta_ionode_id, world_comm)
-  CALL mp_bcast (acbn0_manifold2, meta_ionode_id, world_comm)
   CALL mp_bcast (tmp_dir, meta_ionode_id, world_comm)
   !
 #endif
