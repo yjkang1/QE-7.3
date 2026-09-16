@@ -809,6 +809,7 @@ SUBROUTINE hp_acbn0_u()
   CALL hp_acbn0_ns_a0( ns, hub_u )
   !
   CALL hp_acbn0_write( ns, hub_u )
+  CALL hp_acbn0_dump_u( ns, hub_u )
   !
   DEALLOCATE( ns, hub_u )
   CALL hp_acbn0_free_man()
@@ -958,7 +959,7 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
   REAL(DP), INTENT(IN) :: hub_u(nat,lm_max,lm_max)
   !
   INTEGER              :: na, nt, m1, m2, is, iunit
-  REAL(DP)             :: utr, occ
+  REAL(DP)             :: utr, occ, e_on
   CHARACTER(LEN=1)     :: spdf(4) = ['s','p','d','f']
   CHARACTER(LEN=256)   :: filename
   !
@@ -1020,6 +1021,14 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
               na, nt, TRIM(atm(nt)), hp_acbn0_chanlab(nt,lch(m1,nt)), occ, utr
      ENDDO
   ENDDO
+  !
+  CALL hp_acbn0_energy_u( ns, hub_u, e_on )
+  WRITE( iunit, '(/2x,79("-"))')
+  WRITE( iunit, '(2x,"One-shot Hubbard energy  (NOT self-consistent)")')
+  WRITE( iunit, '(2x,79("-"))')
+  WRITE( iunit, '(/4x,"E(+U) : ",f16.9," Ry  = ",f12.6," eV")') e_on, e_on*rytoev
+  WRITE( iunit, '( 4x,"Evaluated with the one-shot U above and the occupations it was computed")')
+  WRITE( iunit, '( 4x,"from (v_hubbard_a0.f90 loop); not a total-energy contribution.")')
   !
   WRITE( iunit, '(/2x,79("-"))')
   WRITE( iunit, '(2x,"Full U matrix  U[na, m1, m2]  (eV)")')
@@ -1874,6 +1883,7 @@ SUBROUTINE hp_acbn0_v()
   !
   CALL hp_acbn0_print_uv( hub_v )
   CALL hp_acbn0_write_v( ns, hub_v )
+  CALL hp_acbn0_dump_v( ns, hub_v )
   !
   DEALLOCATE( ns, hub_v )
   CALL hp_acbn0_free_nn()
@@ -1992,6 +2002,351 @@ SUBROUTINE hp_acbn0_check_v()
 END SUBROUTINE hp_acbn0_check_v
 
 !-----------------------------------------------------------------------
+SUBROUTINE hp_acbn0_energy_v( ns, hub_v, e_on, e_int )
+  !---------------------------------------------------------------------
+  !
+  ! One-shot extended Hubbard energy, evaluated with the U and V just
+  ! computed and the occupations they were computed from.  Loop for loop
+  ! the same as PW/src/v_hubbard_v.f90 (Lee & Son), minus the potential:
+  !
+  !   E_on  = sum_{I,s,m}  U_mm/2 n_mm - sum_{I,s,m1,m2} U_m1m2/2 n_m1m2 n_m2m1
+  !   E_int = - sum_{I/=J,s,m1,m2} V_m1m2/2 n^IJ_m1m2 n^JI_m2m1
+  !
+  ! NOT a physical energy: U, V and the density are not self-consistent
+  ! here (no feedback loop).  It is the number v_hubbard_v would print as
+  ! E(+U+V) on the first iteration of a run started from this density with
+  ! ehub_mixing = 1, and exists to validate the functional port.
+  !
+  USE kinds,       ONLY : DP
+  USE ions_base,   ONLY : nat, ityp
+  USE lsda_mod,    ONLY : nspin
+  USE hp_acbn0_nn, ONLY : nnnc, nn_vect, nn_dim, nn_csize
+  USE hp_acbn0_man, ONLY : lm_max, lm
+  !
+  IMPLICIT NONE
+  !
+  REAL(DP), INTENT(IN)  :: ns   (lm_max,lm_max,nspin,nat,nat,nnnc)
+  REAL(DP), INTENT(IN)  :: hub_v(nat,nat,lm_max,lm_max,nnnc)
+  REAL(DP), INTENT(OUT) :: e_on, e_int
+  !
+  INTEGER :: is, na1, na2, nt1, nt2, m1, m2, n1, n2, n3, nnc, ics
+  !
+  e_on = 0.0_DP ; e_int = 0.0_DP
+  ics  = nn_csize + 1
+  !
+  DO na1 = 1, nat
+     nt1 = ityp(na1)
+     IF ( lm(nt1) == 0 ) CYCLE
+     DO is = 1, nspin
+        DO m1 = 1, lm(nt1)
+           e_on = e_on + 0.5_DP*hub_v(na1,na1,m1,m1,1)*ns(m1,m1,is,na1,na1,1)
+           DO m2 = 1, lm(nt1)
+              e_on = e_on - 0.5_DP*hub_v(na1,na1,m1,m2,1) &
+                          * ns(m1,m2,is,na1,na1,1)*ns(m2,m1,is,na1,na1,1)
+           ENDDO
+        ENDDO
+     ENDDO
+  ENDDO
+  !
+  DO na1 = 1, nat
+     nt1 = ityp(na1)
+     IF ( lm(nt1) == 0 ) CYCLE
+     DO na2 = 1, nat
+        nt2 = ityp(na2)
+        IF ( lm(nt2) == 0 ) CYCLE
+        IF ( nn_vect(ics,ics,ics,na1,na2) == 0 ) CYCLE
+        DO is = 1, nspin
+           DO m1 = 1, lm(nt1)
+              DO m2 = 1, lm(nt2)
+                 e_int = e_int - 0.5_DP*hub_v(na1,na2,m1,m2,1) &
+                               * ns(m1,m2,is,na1,na2,1)*ns(m2,m1,is,na2,na1,1)
+              ENDDO
+           ENDDO
+        ENDDO
+     ENDDO
+  ENDDO
+  !
+  nnc = 2
+  DO n1 = -nn_dim(1), nn_dim(1)
+  DO n2 = -nn_dim(2), nn_dim(2)
+  DO n3 = -nn_dim(3), nn_dim(3)
+     IF ( n1 == 0 .AND. n2 == 0 .AND. n3 == 0 ) CYCLE
+     DO na1 = 1, nat
+        nt1 = ityp(na1)
+        IF ( lm(nt1) == 0 ) CYCLE
+        DO na2 = 1, nat
+           nt2 = ityp(na2)
+           IF ( lm(nt2) == 0 ) CYCLE
+           IF ( nn_vect(n1+ics,n2+ics,n3+ics,na1,na2) == 0 ) CYCLE
+           DO is = 1, nspin
+              DO m1 = 1, lm(nt1)
+                 DO m2 = 1, lm(nt2)
+                    ! NOTE: ns* = ns  (v_hubbard_v.f90)
+                    e_int = e_int - 0.5_DP*hub_v(na1,na2,m1,m2,nnc) &
+                                  * ns(m1,m2,is,na1,na2,nnc)*ns(m1,m2,is,na1,na2,nnc)
+                 ENDDO
+              ENDDO
+           ENDDO
+        ENDDO
+     ENDDO
+     IF ( MAXVAL(nn_vect(n1+ics,n2+ics,n3+ics,:,:)) == 1 ) nnc = nnc + 1
+  ENDDO
+  ENDDO
+  ENDDO
+  !
+  IF ( nspin == 1 ) THEN
+     e_on = 2.0_DP*e_on ; e_int = 2.0_DP*e_int
+  ENDIF
+  !
+  RETURN
+END SUBROUTINE hp_acbn0_energy_v
+
+!-----------------------------------------------------------------------
+SUBROUTINE hp_acbn0_energy_u( ns, hub_u, e_on )
+  !---------------------------------------------------------------------
+  !
+  ! On-site-only counterpart of hp_acbn0_energy_v, mirroring v_hubbard_a0.
+  !
+  USE kinds,        ONLY : DP
+  USE ions_base,    ONLY : nat, ityp
+  USE lsda_mod,     ONLY : nspin
+  USE hp_acbn0_man, ONLY : lm_max, lm
+  !
+  IMPLICIT NONE
+  !
+  REAL(DP), INTENT(IN)  :: ns   (lm_max,lm_max,nspin,nat)
+  REAL(DP), INTENT(IN)  :: hub_u(nat,lm_max,lm_max)
+  REAL(DP), INTENT(OUT) :: e_on
+  !
+  INTEGER :: is, na, nt, m1, m2
+  !
+  e_on = 0.0_DP
+  DO na = 1, nat
+     nt = ityp(na)
+     IF ( lm(nt) == 0 ) CYCLE
+     DO is = 1, nspin
+        DO m1 = 1, lm(nt)
+           e_on = e_on + 0.5_DP*hub_u(na,m1,m1)*ns(m1,m1,is,na)
+           DO m2 = 1, lm(nt)
+              e_on = e_on - 0.5_DP*hub_u(na,m1,m2)*ns(m1,m2,is,na)*ns(m2,m1,is,na)
+           ENDDO
+        ENDDO
+     ENDDO
+  ENDDO
+  IF ( nspin == 1 ) e_on = 2.0_DP*e_on
+  !
+  RETURN
+END SUBROUTINE hp_acbn0_energy_u
+
+!-----------------------------------------------------------------------
+SUBROUTINE hp_acbn0_dump_v( ns, hub_v )
+  !---------------------------------------------------------------------
+  !
+  ! Machine-comparable dumps in EXACTLY the formats PW/src/io_rho_xml.f90
+  ! of the Lee & Son patch writes into prefix.save/, so the two codes can
+  ! be diffed file against file:
+  !
+  !   ehub_uv.txt         list-directed dump of ehub_v(nat,nat,9,9,nnnc), Ry
+  !                       (the forked code allocates the orbital dims as 9,
+  !                        input.f90:2188 - padded here to match)
+  !   ehub_uv0.txt        indexed:  na1 na2 m1 m2 n1 n2 n3 nnc  V(Ry)
+  !   occupation_uv.txt   list-directed dump of ne0(lm,lm,nspin,nat,nat,nnnc)
+  !   occupation_uv0.txt  indexed, nonzero entries only
+  !
+  ! Written into outdir/prefix.save/, where the forked code puts them.
+  !
+  USE kinds,       ONLY : DP
+  USE io_global,   ONLY : ionode, stdout
+  USE io_files,    ONLY : tmp_dir, prefix
+  USE ions_base,   ONLY : nat, ityp
+  USE lsda_mod,    ONLY : nspin
+  USE hp_acbn0_nn, ONLY : nnnc, nn_vect, nn_dim, nn_csize
+  USE hp_acbn0_man, ONLY : lm_max, lm
+  !
+  IMPLICIT NONE
+  !
+  REAL(DP), INTENT(IN) :: ns   (lm_max,lm_max,nspin,nat,nat,nnnc)
+  REAL(DP), INTENT(IN) :: hub_v(nat,nat,lm_max,lm_max,nnnc)
+  !
+  REAL(DP), ALLOCATABLE :: v9(:,:,:,:,:)
+  INTEGER  :: iu, is, na1, na2, nt1, nt2, m1, m2, n1, n2, n3, nnc, ics
+  CHARACTER(LEN=256) :: dirname
+  INTEGER, EXTERNAL  :: find_free_unit
+  !
+  IF ( .NOT.ionode ) RETURN
+  !
+  dirname = TRIM(tmp_dir) // TRIM(prefix) // '.save/'
+  ics = nn_csize + 1
+  !
+  ! ---- ehub_uv.txt --------------------------------------------------------
+  ALLOCATE( v9(nat,nat,9,9,nnnc) ) ; v9 = 0.0_DP
+  v9(:,:,1:lm_max,1:lm_max,:) = hub_v(:,:,1:lm_max,1:lm_max,:)
+  iu = find_free_unit()
+  OPEN( iu, FILE = TRIM(dirname)//'ehub_uv.txt', FORM = 'FORMATTED', STATUS = 'unknown' )
+  WRITE( iu, * ) v9
+  CLOSE( iu )
+  DEALLOCATE( v9 )
+  !
+  ! ---- ehub_uv0.txt -------------------------------------------------------
+  iu = find_free_unit()
+  OPEN( iu, FILE = TRIM(dirname)//'ehub_uv0.txt', FORM = 'FORMATTED', STATUS = 'unknown' )
+  WRITE( iu, '(a)' ) '     # V[atom i, atom j, #orb(i), #orb(j), l, m, n, nnc]'
+  DO na1 = 1, nat
+     nt1 = ityp(na1)
+     IF ( lm(nt1) == 0 ) CYCLE
+     DO na2 = 1, nat
+        nt2 = ityp(na2)
+        IF ( lm(nt2) == 0 ) CYCLE
+        IF ( na1 /= na2 .AND. nn_vect(ics,ics,ics,na1,na2) == 0 ) CYCLE
+        DO m1 = 1, lm(nt1)
+           DO m2 = 1, lm(nt2)
+              WRITE( iu, '(8i4, 1f25.15)' ) na1, na2, m1, m2, 0, 0, 0, 1, hub_v(na1,na2,m1,m2,1)
+           ENDDO
+        ENDDO
+     ENDDO
+  ENDDO
+  nnc = 2
+  DO n1 = -nn_dim(1), nn_dim(1)
+  DO n2 = -nn_dim(2), nn_dim(2)
+  DO n3 = -nn_dim(3), nn_dim(3)
+     IF ( n1 == 0 .AND. n2 == 0 .AND. n3 == 0 ) CYCLE
+     DO na1 = 1, nat
+        nt1 = ityp(na1)
+        IF ( lm(nt1) == 0 ) CYCLE
+        DO na2 = 1, nat
+           nt2 = ityp(na2)
+           IF ( lm(nt2) == 0 ) CYCLE
+           IF ( nn_vect(n1+ics,n2+ics,n3+ics,na1,na2) == 0 ) CYCLE
+           DO m1 = 1, lm(nt1)
+              DO m2 = 1, lm(nt2)
+                 WRITE( iu, '(8i4, 1f25.15)' ) na1, na2, m1, m2, n1, n2, n3, nnc, hub_v(na1,na2,m1,m2,nnc)
+              ENDDO
+           ENDDO
+        ENDDO
+     ENDDO
+     IF ( MAXVAL(nn_vect(n1+ics,n2+ics,n3+ics,:,:)) == 1 ) nnc = nnc + 1
+  ENDDO
+  ENDDO
+  ENDDO
+  CLOSE( iu )
+  !
+  ! ---- occupation_uv.txt --------------------------------------------------
+  iu = find_free_unit()
+  OPEN( iu, FILE = TRIM(dirname)//'occupation_uv.txt', FORM = 'FORMATTED', STATUS = 'unknown' )
+  WRITE( iu, * ) ns
+  CLOSE( iu )
+  !
+  ! ---- occupation_uv0.txt -------------------------------------------------
+  iu = find_free_unit()
+  OPEN( iu, FILE = TRIM(dirname)//'occupation_uv0.txt', FORM = 'FORMATTED', STATUS = 'unknown' )
+  WRITE( iu, '(a)' ) '# ehub_lm_max, ehub_lm_max, nspin, nat, nat, ehub_nnnc'
+  WRITE( iu, '(A, I3, 5I4)' ) '#', lm_max, lm_max, nspin, nat, nat, nnnc
+  DO m1 = 1, lm_max
+     DO m2 = 1, lm_max
+        DO is = 1, nspin
+           DO na1 = 1, nat
+              DO na2 = 1, nat
+                 DO nnc = 1, nnnc
+                    IF ( ns(m1,m2,is,na1,na2,nnc) /= 0.0_DP ) &
+                       WRITE( iu, '(6i4, 1f25.15)' ) m1, m2, is, na1, na2, nnc, ns(m1,m2,is,na1,na2,nnc)
+                 ENDDO
+              ENDDO
+           ENDDO
+        ENDDO
+     ENDDO
+  ENDDO
+  CLOSE( iu )
+  !
+  WRITE( stdout, '(5x,"eACBN0 dumps (forked-code formats) written to ",a)') TRIM(dirname)
+  WRITE( stdout, '(7x,"ehub_uv.txt  ehub_uv0.txt  occupation_uv.txt  occupation_uv0.txt")')
+  !
+  RETURN
+END SUBROUTINE hp_acbn0_dump_v
+
+!-----------------------------------------------------------------------
+SUBROUTINE hp_acbn0_dump_u( ns, hub_u )
+  !---------------------------------------------------------------------
+  !
+  ! acbn0 = 1 counterpart of hp_acbn0_dump_v.  The forked code (acbn0_type
+  ! = 1) dumps ehub_u(nat,9,9) into ehub_uv.txt, an eV matrix listing into
+  ! ehub_u0.txt, and na0(lm,lm,nspin,nat) into occupation_uv.txt.
+  !
+  USE kinds,       ONLY : DP
+  USE constants,   ONLY : rytoev
+  USE io_global,   ONLY : ionode, stdout
+  USE io_files,    ONLY : tmp_dir, prefix
+  USE ions_base,   ONLY : nat, ityp
+  USE lsda_mod,    ONLY : nspin
+  USE hp_acbn0_man, ONLY : lm_max, lm, lch
+  !
+  IMPLICIT NONE
+  !
+  REAL(DP), INTENT(IN) :: ns   (lm_max,lm_max,nspin,nat)
+  REAL(DP), INTENT(IN) :: hub_u(nat,lm_max,lm_max)
+  !
+  REAL(DP), ALLOCATABLE :: u9(:,:,:)
+  INTEGER  :: iu, is, na, nt, m1, m2, lmx
+  CHARACTER(LEN=256) :: dirname
+  INTEGER, EXTERNAL  :: find_free_unit
+  !
+  IF ( .NOT.ionode ) RETURN
+  !
+  dirname = TRIM(tmp_dir) // TRIM(prefix) // '.save/'
+  !
+  ALLOCATE( u9(nat,9,9) ) ; u9 = 0.0_DP
+  u9(:,1:lm_max,1:lm_max) = hub_u(:,1:lm_max,1:lm_max)
+  iu = find_free_unit()
+  OPEN( iu, FILE = TRIM(dirname)//'ehub_uv.txt', FORM = 'FORMATTED', STATUS = 'unknown' )
+  WRITE( iu, * ) u9
+  CLOSE( iu )
+  DEALLOCATE( u9 )
+  !
+  iu = find_free_unit()
+  OPEN( iu, FILE = TRIM(dirname)//'ehub_u0.txt', FORM = 'FORMATTED', STATUS = 'unknown' )
+  WRITE( iu, '(a)' ) '                          '
+  WRITE( iu, '(a)' ) '     ---------------------'
+  WRITE( iu, '(a)' ) '     U[atom i, #orb, #orb]'
+  WRITE( iu, '(a)' ) '     ---------------------'
+  DO na = 1, nat
+     nt = ityp(na)
+     IF ( lm(nt) == 0 ) CYCLE
+     lmx = 2*MAXVAL(lch(1:lm(nt),nt)) - 1
+     WRITE( iu, '(3(a,i2),a)' ) '     [ ', na, ', ', lmx, ', ', lmx, '  ]'
+     DO m1 = 1, lm(nt)
+        WRITE( iu, '(4x,16f9.4)' ) (hub_u(na,m1,m2)*rytoev, m2 = 1, lm(nt))
+     ENDDO
+     WRITE( iu, * ) ''
+  ENDDO
+  CLOSE( iu )
+  !
+  iu = find_free_unit()
+  OPEN( iu, FILE = TRIM(dirname)//'occupation_uv.txt', FORM = 'FORMATTED', STATUS = 'unknown' )
+  WRITE( iu, * ) ns
+  CLOSE( iu )
+  !
+  iu = find_free_unit()
+  OPEN( iu, FILE = TRIM(dirname)//'occupation_uv0.txt', FORM = 'FORMATTED', STATUS = 'unknown' )
+  WRITE( iu, '(a)' ) '# ehub_lm_max, ehub_lm_max, nspin, nat'
+  WRITE( iu, '(A, I3, 3I4)' ) '#', lm_max, lm_max, nspin, nat
+  DO m1 = 1, lm_max
+     DO m2 = 1, lm_max
+        DO is = 1, nspin
+           DO na = 1, nat
+              IF ( ns(m1,m2,is,na) /= 0.0_DP ) &
+                 WRITE( iu, '(4i4, 1f25.15)' ) m1, m2, is, na, ns(m1,m2,is,na)
+           ENDDO
+        ENDDO
+     ENDDO
+  ENDDO
+  CLOSE( iu )
+  !
+  WRITE( stdout, '(5x,"ACBN0 dumps (forked-code formats) written to ",a)') TRIM(dirname)
+  WRITE( stdout, '(7x,"ehub_uv.txt  ehub_u0.txt  occupation_uv.txt  occupation_uv0.txt")')
+  !
+  RETURN
+END SUBROUTINE hp_acbn0_dump_u
+
+!-----------------------------------------------------------------------
 SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   !---------------------------------------------------------------------
   !
@@ -2019,7 +2374,7 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   !
   INTEGER              :: na, na1, na2, nt, nt1, nt2, m1, m2, is, nnc, iunit
   INTEGER              :: npair, ics, n1, n2, n3, thisnnc
-  REAL(DP)             :: utr, vtr, occ
+  REAL(DP)             :: utr, vtr, occ, e_on, e_int
   CHARACTER(LEN=1)     :: spdf(4) = ['s','p','d','f']
   CHARACTER(LEN=256)   :: filename
   !
@@ -2122,6 +2477,21 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   IF ( npair == 0 ) WRITE( iunit, '(/4x,"(none - check nn_distance)")')
   WRITE( iunit, '(/4x,i5," pair(s) with |V| > ",es8.1," Ry")') npair, veps
   !
+  ! ---- one-shot Hubbard energy ------------------------------------------
+  !
+  CALL hp_acbn0_energy_v( ns, hub_v, e_on, e_int )
+  WRITE( iunit, '(/2x,79("-"))')
+  WRITE( iunit, '(2x,"One-shot extended Hubbard energy  (NOT self-consistent, see below)")')
+  WRITE( iunit, '(2x,79("-"))')
+  WRITE( iunit, '(/4x,"on-site   (U)  : ",f16.9," Ry  = ",f12.6," eV")') e_on,        e_on*rytoev
+  WRITE( iunit, '( 4x,"inter-site (V) : ",f16.9," Ry  = ",f12.6," eV")') e_int,       e_int*rytoev
+  WRITE( iunit, '( 4x,"E(+U+V)        : ",f16.9," Ry  = ",f12.6," eV")') e_on+e_int, (e_on+e_int)*rytoev
+  WRITE( iunit, '(/4x,"Evaluated with the one-shot U, V above and the occupations they were")')
+  WRITE( iunit, '( 4x,"computed from; U, V and the density are not mutually self-consistent,")')
+  WRITE( iunit, '( 4x,"so this is not a total-energy contribution.  It equals what the forked")')
+  WRITE( iunit, '( 4x,"pw.x prints as E(+U+V) on the first iteration of a run started from this")')
+  WRITE( iunit, '( 4x,"density with ehub_mixing = 1 (v_hubbard_v.f90).")')
+  !
   ! ---- full on-site matrices ------------------------------------------
   !
   WRITE( iunit, '(/2x,79("-"))')
@@ -2168,8 +2538,11 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
               na, nt, TRIM(atm(nt)), hp_acbn0_chanlab(nt,lch(m1,nt)), hub_v(na,na,m1,m1,1)*rytoev
      ENDDO
   ENDDO
-  WRITE( stdout, '(/5x,i5," inter-site pair(s) with non-zero V; see ",a,/)') &
+  WRITE( stdout, '(/5x,i5," inter-site pair(s) with non-zero V; see ",a)') &
         npair, TRIM(filename)
+  WRITE( stdout, '(/5x,"one-shot E(+U+V) = ",f14.9," Ry   (on-site ",f14.9,",  inter-site ",f14.9,")")') &
+        e_on+e_int, e_on, e_int
+  WRITE( stdout, '(5x,"(not self-consistent: U, V and the density do not feed back into each other)",/)')
   !
   RETURN
   !
