@@ -673,6 +673,40 @@ CONTAINS
   END SUBROUTINE hp_acbn0_free_man
   !
   !-------------------------------------------------------------------
+  FUNCTION hp_acbn0_chanlab( nt, c ) RESULT( lab )
+    !-----------------------------------------------------------------
+    !
+    ! Printable label of ONE channel of type nt: c is the lch value
+    ! (= l+1), the result is e.g. '4s' or '3d'.  The principal quantum
+    ! number comes from whichever of Hubbard_l / l2 / l3 carries that l.
+    !
+    USE ldaU, ONLY : Hubbard_n, Hubbard_l, Hubbard_n2, Hubbard_l2, &
+                     Hubbard_n3, Hubbard_l3, backall
+    IMPLICIT NONE
+    INTEGER, INTENT(IN) :: nt, c
+    CHARACTER(LEN=2)    :: lab
+    CHARACTER(LEN=1)    :: spdf(4) = ['s','p','d','f']
+    INTEGER             :: n
+    !
+    lab = '??'
+    IF ( c < 1 .OR. c > 4 ) RETURN
+    n = -1
+    IF ( Hubbard_l(nt)  == c-1 ) THEN
+       n = Hubbard_n(nt)
+    ELSEIF ( Hubbard_l2(nt) == c-1 ) THEN
+       n = Hubbard_n2(nt)
+    ELSEIF ( backall(nt) .AND. Hubbard_l3(nt) == c-1 ) THEN
+       n = Hubbard_n3(nt)
+    ENDIF
+    IF ( n >= 1 .AND. n <= 9 ) THEN
+       WRITE( lab, '(i1,a1)' ) n, spdf(c)
+    ELSE
+       lab = ' ' // spdf(c)
+    ENDIF
+    RETURN
+  END FUNCTION hp_acbn0_chanlab
+  !
+  !-------------------------------------------------------------------
   FUNCTION hp_acbn0_manlab( nt ) RESULT( lab )
     !-----------------------------------------------------------------
     !
@@ -876,8 +910,13 @@ SUBROUTINE hp_acbn0_check()
   DO nt = 1, ntyp
      IF ( .NOT.is_hubbard(nt) ) CYCLE
      nath = nath + 1
-     WRITE( stdout, '(7x,"type ",i2,"  ",a6,"  l = ",i1,"   (",i2," states)")') &
-           nt, TRIM(atm(nt)), Hubbard_l(nt), 2*Hubbard_l(nt)+1
+     WRITE( stdout, '(7x,"type ",i2,"  ",a6,"  l = ",i1)', ADVANCE='NO') &
+           nt, TRIM(atm(nt)), Hubbard_l(nt)
+     IF ( is_hubbard_back(nt) ) THEN
+        WRITE( stdout, '(" + ",i1)', ADVANCE='NO') Hubbard_l2(nt)
+        IF ( backall(nt) ) WRITE( stdout, '(" + ",i1)', ADVANCE='NO') Hubbard_l3(nt)
+     ENDIF
+     WRITE( stdout, * )
   ENDDO
   WRITE( stdout, '(7x,"nwfcU = ",i5,/)') nwfcU
   !
@@ -911,7 +950,7 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
   USE lsda_mod,   ONLY : nspin
   USE ldaU,       ONLY : Hubbard_l, Hubbard_lmax, is_hubbard
   USE ldaU_hp,    ONLY : acbn0
-  USE hp_acbn0_man,         ONLY : lm_max, lm, lch, hp_acbn0_manlab
+  USE hp_acbn0_man,         ONLY : lm_max, lm, lch, hp_acbn0_manlab, hp_acbn0_chanlab
   !
   IMPLICIT NONE
   !
@@ -920,7 +959,6 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
   !
   INTEGER              :: na, nt, m1, m2, is, iunit
   REAL(DP)             :: utr, occ
-  LOGICAL              :: uniform
   CHARACTER(LEN=1)     :: spdf(4) = ['s','p','d','f']
   CHARACTER(LEN=256)   :: filename
   !
@@ -947,7 +985,8 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
   WRITE( iunit, '(/2x,79("-"))')
   WRITE( iunit, '(2x,"Summary")')
   WRITE( iunit, '(2x,79("-"))')
-  WRITE( iunit, '(/4x,"site n.  type  label   manifold   occupation   U_ACBN0 (eV)")')
+  WRITE( iunit, '(/4x,"site n.  type  label  channel   occupation   U_ACBN0 (eV)")')
+  WRITE( iunit, '( 4x,"(one row per channel; occupation and U of that channel only)")')
   !
   DO na = 1, nat
      nt = ityp(na)
@@ -962,25 +1001,24 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
         ENDDO
      ENDDO
      !
-     ! is the U matrix constant?  (see the header note)
+     ! One row per channel.  U is constant inside an (l1,l2) block (it is
+     ! built per l, see the header note), so the diagonal block's value is
+     ! that channel's U.  With several channels the (1,1) element alone
+     ! would show only the first channel - or 0 when its on-site U is masked
+     ! by acbn0_rm_ehub_u.  Cross blocks are in the full matrix below.
      !
-     uniform = .TRUE.
      DO m1 = 1, lm(nt)
-        DO m2 = 1, lm(nt)
-           IF ( ABS(hub_u(na,m1,m2) - hub_u(na,1,1)) > 1.0D-8 ) uniform = .FALSE.
+        IF ( ANY( lch(1:m1-1,nt) == lch(m1,nt) ) ) CYCLE     ! first m of this channel
+        occ = 0.0_DP
+        DO is = 1, nspin
+           DO m2 = 1, lm(nt)
+              IF ( lch(m2,nt) == lch(m1,nt) ) occ = occ + ns(m2,m2,is,na)
+           ENDDO
         ENDDO
+        utr = hub_u(na,m1,m1) * rytoev
+        WRITE( iunit, '(6x,i3,4x,i3,3x,a6,4x,a2,6x,f9.4,4x,f10.4)') &
+              na, nt, TRIM(atm(nt)), hp_acbn0_chanlab(nt,lch(m1,nt)), occ, utr
      ENDDO
-     !
-     utr = hub_u(na,1,1) * rytoev
-
-     IF ( uniform ) THEN
-        WRITE( iunit, '(6x,i3,4x,i3,3x,a6,5x,a4,4x,f9.4,4x,f10.4)') &
-              na, nt, TRIM(atm(nt)), hp_acbn0_manlab(nt), occ, utr
-     ELSE
-        WRITE( iunit, '(6x,i3,4x,i3,3x,a6,5x,a4,4x,f9.4,4x,f10.4,3x,a)') &
-              na, nt, TRIM(atm(nt)), hp_acbn0_manlab(nt), occ, utr, &
-              '<- matrix NOT uniform, see below'
-     ENDIF
   ENDDO
   !
   WRITE( iunit, '(/2x,79("-"))')
@@ -1019,12 +1057,15 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
   !
   ! Echo the summary to stdout as well, so it is greppable from the job output.
   !
-  WRITE( stdout, '(5x,"site n.  type  label   manifold   U_ACBN0 (eV)")')
+  WRITE( stdout, '(5x,"site n.  type  label  channel   U_ACBN0 (eV)")')
   DO na = 1, nat
      nt = ityp(na)
      IF ( lm(nt) == 0 ) CYCLE
-     WRITE( stdout, '(7x,i3,4x,i3,3x,a6,5x,a4,5x,f10.4)') &
-           na, nt, TRIM(atm(nt)), hp_acbn0_manlab(nt), hub_u(na,1,1)*rytoev
+     DO m1 = 1, lm(nt)
+        IF ( ANY( lch(1:m1-1,nt) == lch(m1,nt) ) ) CYCLE
+        WRITE( stdout, '(7x,i3,4x,i3,3x,a6,4x,a2,6x,f10.4)') &
+              na, nt, TRIM(atm(nt)), hp_acbn0_chanlab(nt,lch(m1,nt)), hub_u(na,m1,m1)*rytoev
+     ENDDO
   ENDDO
   WRITE( stdout, * )
   !
@@ -1933,8 +1974,13 @@ SUBROUTINE hp_acbn0_check_v()
   DO nt = 1, ntyp
      IF ( .NOT.is_hubbard(nt) ) CYCLE
      nath = nath + 1
-     WRITE( stdout, '(7x,"type ",i2,"  ",a6,"  l = ",i1,"   (",i2," states)")') &
-           nt, TRIM(atm(nt)), Hubbard_l(nt), 2*Hubbard_l(nt)+1
+     WRITE( stdout, '(7x,"type ",i2,"  ",a6,"  l = ",i1)', ADVANCE='NO') &
+           nt, TRIM(atm(nt)), Hubbard_l(nt)
+     IF ( is_hubbard_back(nt) ) THEN
+        WRITE( stdout, '(" + ",i1)', ADVANCE='NO') Hubbard_l2(nt)
+        IF ( backall(nt) ) WRITE( stdout, '(" + ",i1)', ADVANCE='NO') Hubbard_l3(nt)
+     ENDIF
+     WRITE( stdout, * )
   ENDDO
   WRITE( stdout, '(7x,"nwfcU = ",i5,/)') nwfcU
   !
@@ -1964,7 +2010,7 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   USE lsda_mod,    ONLY : nspin
   USE ldaU,        ONLY : Hubbard_l, Hubbard_lmax, is_hubbard
   USE hp_acbn0_nn, ONLY : nnnc, nn_distance, nn_vect, nn_leng, nn_dim, nn_csize
-  USE hp_acbn0_man,         ONLY : lm_max, lm, lch, hp_acbn0_manlab
+  USE hp_acbn0_man,         ONLY : lm_max, lm, lch, hp_acbn0_manlab, hp_acbn0_chanlab
   !
   IMPLICIT NONE
   !
@@ -2009,20 +2055,25 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   WRITE( iunit, '(/2x,79("-"))')
   WRITE( iunit, '(2x,"On-site U   = hub_v[na, na, m1, m2, cell 0]")')
   WRITE( iunit, '(2x,79("-"))')
-  WRITE( iunit, '(/4x,"site n.  type  label   manifold   occupation    U (eV)")')
+  WRITE( iunit, '(/4x,"site n.  type  label  channel   occupation    U (eV)")')
+  WRITE( iunit, '( 4x,"(one row per channel; occupation and U of that channel only)")')
   !
   DO na = 1, nat
      nt = ityp(na)
      IF ( lm(nt) == 0 ) CYCLE
-     occ = 0.0_DP
-     DO is = 1, nspin
-        DO m1 = 1, lm(nt)
-           occ = occ + ns(m1,m1,is,na,na,1)
+     ! One row per channel (see the same loop in hp_acbn0_write).
+     DO m1 = 1, lm(nt)
+        IF ( ANY( lch(1:m1-1,nt) == lch(m1,nt) ) ) CYCLE
+        occ = 0.0_DP
+        DO is = 1, nspin
+           DO m2 = 1, lm(nt)
+              IF ( lch(m2,nt) == lch(m1,nt) ) occ = occ + ns(m2,m2,is,na,na,1)
+           ENDDO
         ENDDO
+        utr = hub_v(na,na,m1,m1,1) * rytoev
+        WRITE( iunit, '(6x,i3,4x,i3,3x,a6,4x,a2,6x,f9.4,4x,f10.4)') &
+              na, nt, TRIM(atm(nt)), hp_acbn0_chanlab(nt,lch(m1,nt)), occ, utr
      ENDDO
-     utr = hub_v(na,na,1,1,1) * rytoev
-     WRITE( iunit, '(6x,i3,4x,i3,3x,a6,5x,a4,4x,f9.4,4x,f10.4)') &
-           na, nt, TRIM(atm(nt)), hp_acbn0_manlab(nt), occ, utr
   ENDDO
   !
   ! ---- inter-site V, with the cell vector and distance -----------------
@@ -2031,7 +2082,9 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   WRITE( iunit, '(2x,"Inter-site V")')
   WRITE( iunit, '(2x,79("-"))')
   WRITE( iunit, '(/4x,"na1  type1     na2  type2      cell [n1 n2 n3]", &
-        &"    d (A)      V (eV)")')
+        &"    d (A)    block      V (eV)")')
+  WRITE( iunit, '( 4x,"(one row per (channel of na1, channel of na2) block; ", &
+        &"V is constant inside a block)")')
   !
   npair = 0
   DO n1 = -nn_dim(1), nn_dim(1)
@@ -2046,13 +2099,20 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
            IF ( lm(nt2) == 0 ) CYCLE
            IF ( nn_vect(n1+ics,n2+ics,n3+ics,na1,na2) == 0 ) CYCLE
            IF ( n1 == 0 .AND. n2 == 0 .AND. n3 == 0 .AND. na1 == na2 ) CYCLE
-           vtr = hub_v(na1,na2,1,1,thisnnc)
-           IF ( ABS(vtr) < veps ) CYCLE
+           IF ( MAXVAL(ABS(hub_v(na1,na2,1:lm(nt1),1:lm(nt2),thisnnc))) < veps ) CYCLE
            npair = npair + 1
-           WRITE( iunit, '(4x,i3,2x,a6,4x,i3,2x,a6,4x,"[",3i3," ]",4x,f7.4,4x,f10.4)') &
-                 na1, TRIM(atm(nt1)), na2, TRIM(atm(nt2)), n1, n2, n3, &
-                 nn_leng(n1+ics,n2+ics,n3+ics,na1,na2)*alat*bohr_radius_angs, &
-                 vtr*rytoev
+           DO m1 = 1, lm(nt1)
+              IF ( ANY( lch(1:m1-1,nt1) == lch(m1,nt1) ) ) CYCLE
+              DO m2 = 1, lm(nt2)
+                 IF ( ANY( lch(1:m2-1,nt2) == lch(m2,nt2) ) ) CYCLE
+                 vtr = hub_v(na1,na2,m1,m2,thisnnc)
+                 WRITE( iunit, '(4x,i3,2x,a6,4x,i3,2x,a6,4x,"[",3i3," ]",4x,f7.4,3x,a2,"-",a2,4x,f10.4)') &
+                       na1, TRIM(atm(nt1)), na2, TRIM(atm(nt2)), n1, n2, n3, &
+                       nn_leng(n1+ics,n2+ics,n3+ics,na1,na2)*alat*bohr_radius_angs, &
+                       hp_acbn0_chanlab(nt1,lch(m1,nt1)), hp_acbn0_chanlab(nt2,lch(m2,nt2)), &
+                       vtr*rytoev
+              ENDDO
+           ENDDO
         ENDDO
      ENDDO
   ENDDO
@@ -2098,12 +2158,15 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   !
   WRITE( stdout, '(/5x,"eACBN0 Hubbard parameters written to ",a,/)') TRIM(filename)
   !
-  WRITE( stdout, '(5x,"site n.  type  label   manifold      U (eV)")')
+  WRITE( stdout, '(5x,"site n.  type  label  channel      U (eV)")')
   DO na = 1, nat
      nt = ityp(na)
      IF ( lm(nt) == 0 ) CYCLE
-     WRITE( stdout, '(7x,i3,4x,i3,3x,a6,5x,a4,5x,f10.4)') &
-           na, nt, TRIM(atm(nt)), hp_acbn0_manlab(nt), hub_v(na,na,1,1,1)*rytoev
+     DO m1 = 1, lm(nt)
+        IF ( ANY( lch(1:m1-1,nt) == lch(m1,nt) ) ) CYCLE
+        WRITE( stdout, '(7x,i3,4x,i3,3x,a6,4x,a2,6x,f10.4)') &
+              na, nt, TRIM(atm(nt)), hp_acbn0_chanlab(nt,lch(m1,nt)), hub_v(na,na,m1,m1,1)*rytoev
+     ENDDO
   ENDDO
   WRITE( stdout, '(/5x,i5," inter-site pair(s) with non-zero V; see ",a,/)') &
         npair, TRIM(filename)
