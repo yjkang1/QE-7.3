@@ -28,7 +28,7 @@ SUBROUTINE hp_readin()
                                disable_type_analysis, docc_thr, num_neigh, lmin, rmax, &
                                nmix, nq1, nq2, nq3, alpha_mix, start_q, last_q, maxter, &
                                determine_q_mesh_only, acbn0, nn_distance,       &
-                         acbn0_manifold, acbn0_manifold2
+                         acbn0_manifold, acbn0_manifold2, remove_u
   USE paw_variables,    ONLY : okpaw
   !
   IMPLICIT NONE
@@ -46,7 +46,7 @@ SUBROUTINE hp_readin()
                          start_q, last_q, sum_pertq, ethr_nscf, num_neigh, lmin,      &
                          determine_num_pert_only, disable_type_analysis, docc_thr,    &
                          determine_q_mesh_only, acbn0, nn_distance,       &
-                         acbn0_manifold, acbn0_manifold2
+                         acbn0_manifold, acbn0_manifold2, remove_u
   !
   ! Note: meta_ionode is a single processor that reads the input
   !       Data read from input is subsequently broadcast to all processors
@@ -76,6 +76,7 @@ SUBROUTINE hp_readin()
   nn_distance        = -1.0D0
   acbn0_manifold(:)  = ' '
   acbn0_manifold2(:) = ' '
+  remove_u(:,:)      = 1
   background         = 'no'
   compute_hp         = .FALSE.
   sum_pertq          = .FALSE.
@@ -177,7 +178,8 @@ SUBROUTINE acbn0_manifold_setup()
   USE ions_base,        ONLY : ntyp => nsp
   USE ldaU,             ONLY : lda_plus_u, lda_plus_u_kind, Hubbard_projectors, &
                                Hubbard_n, Hubbard_l, Hubbard_n2, Hubbard_l2,    &
-                               Hubbard_U, Hubbard_U2, nwfcU, wfcU, backall
+                               Hubbard_U, Hubbard_U2, nwfcU, wfcU, backall,     &
+                               init_hubbard
   USE uspp_param,       ONLY : upf
   USE lsda_mod,         ONLY : nspin
   USE noncollin_module, ONLY : noncolin, npol
@@ -198,19 +200,31 @@ SUBROUTINE acbn0_manifold_setup()
   given = ANY( acbn0_manifold(1:ntyp)  /= ' ' ) .OR. &
           ANY( acbn0_manifold2(1:ntyp) /= ' ' )
   !
-  IF ( .NOT.given ) RETURN
+  IF ( acbn0 == 0 ) THEN
+     IF ( given ) CALL errore( 'acbn0_manifold_setup', &
+        'acbn0_manifold is meaningful only for acbn0 = 1 or 2', 1 )
+     RETURN
+  ENDIF
   !
-  IF ( acbn0 == 0 ) CALL errore( 'acbn0_manifold_setup', &
-     'acbn0_manifold is meaningful only for acbn0 = 1 or 2', 1 )
+  ! acbn0 > 0: the manifold is declared HERE, and only here.  The pw.x ground
+  ! state must be a plain (non-Hubbard) SCF - this mirrors Lee & Son, where
+  ! ehub_l_choice selects the manifold and nothing else in the run knows a U.
   !
-  ! Refuse to override rather than silently disagree with the ground state.
-  ! If the pw.x run declared a manifold, that is the manifold it was converged
-  ! with; analysing it against a different one would be quietly wrong.
+  ! The former alternative - a HUBBARD card with a placeholder U in the pw.x
+  ! input, manifold read back from the XML - is no longer accepted.  It made
+  ! pw.x apply a (tiny) Hubbard potential during the SCF, split a second
+  ! channel into stock QE's "background" bookkeeping, and tripped the
+  ! ortho-atomic force guard in dprojdtau_k whenever tprnfor was set.
   !
   IF ( lda_plus_u ) CALL errore( 'acbn0_manifold_setup', &
-     'this ground state already declares a Hubbard manifold (its pw.x input &
-     &carried a HUBBARD card).  Drop acbn0_manifold from &INPUTHP to use the &
-     &manifold recorded in the XML.', 1 )
+     'acbn0 > 0 needs a plain (non-Hubbard) pw.x ground state, but this one &
+     &carries a HUBBARD card.  Remove the HUBBARD card from the pw.x input, &
+     &re-run the SCF, and declare the manifold with acbn0_manifold in &INPUTHP.', 1 )
+  !
+  IF ( .NOT.given ) CALL errore( 'acbn0_manifold_setup', &
+     'acbn0 > 0 needs the Hubbard manifold declared in &INPUTHP: set &
+     &acbn0_manifold(nt) (and acbn0_manifold2(nt) for a second channel) &
+     &for at least one atomic type.', 1 )
   !
   DO nt = 1, ntyp
      IF ( acbn0_manifold2(nt) /= ' ' .AND. acbn0_manifold(nt) == ' ' ) &

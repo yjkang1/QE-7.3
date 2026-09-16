@@ -48,6 +48,7 @@
 !      orthowfcv()                 orthoUwfc(.FALSE.)          idem
 !      copy_v_wfc                  copy_U_wfc                  (inside those)
 !      ehub_u(na,m1,m2)            -                           hub_u argument
+!      remove_ehub_u(nt,l+1)       -                           remove_u (ldaU_hp)
 !
 !  Stages S3 and V3 collapsed ehub_l(m,nt) to the scalar Hubbard_l(nt)+1,
 !  which is correct only while a type carries ONE channel, and multi-channel
@@ -806,9 +807,9 @@ SUBROUTINE hp_acbn0_check()
   INTEGER :: nt, nath
   !
   IF ( .NOT.lda_plus_u ) CALL errore( 'hp_acbn0_check', &
-     'acbn0 > 0 needs a ground state with a Hubbard manifold: the pw.x run &
-     &had lda_plus_u = .false., so MODULE ldaU carries no manifold to &
-     &project onto.  Add a HUBBARD card to the pw.x input.', 1 )
+     'acbn0 > 0 needs a Hubbard manifold, but none was declared: set &
+     &acbn0_manifold(nt) in &INPUTHP (the pw.x ground state itself must be &
+     &a plain non-Hubbard SCF).', 1 )
   !
   ! ortho-atomic is a requirement, not a preference: ACBN0's occupation
   ! ratio is derived for an orthonormal projector basis.  Note the change
@@ -904,7 +905,7 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
   USE kinds,      ONLY : DP
   USE constants,  ONLY : rytoev
   USE io_global,  ONLY : stdout, ionode
-  USE io_files,   ONLY : prefix
+  USE io_files,   ONLY : prefix, tmp_dir
   USE ions_base,  ONLY : nat, ityp, atm, ntyp => nsp
   USE lsda_mod,   ONLY : nspin
   USE ldaU,       ONLY : Hubbard_l, Hubbard_lmax, is_hubbard
@@ -926,8 +927,9 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
   !
   IF ( .NOT.ionode ) RETURN
   !
+  ! Written into outdir (tmp_dir), next to prefix.save, not the launch dir.
   !
-  filename = 'eACBN0_hub.dat'
+  filename = TRIM(tmp_dir) // 'eACBN0_hub.dat'
   iunit = find_free_unit()
   OPEN( iunit, file = TRIM(filename), form = 'formatted', status = 'unknown' )
   !
@@ -1051,6 +1053,7 @@ SUBROUTINE hp_acbn0_ns_a0(ns, hub_u)
                                    deallocate_bec_type
   USE uspp_param,           ONLY : upf
   USE hp_acbn0_man,         ONLY : lm_max, lm, lch, ofs
+  USE ldaU_hp,              ONLY : remove_u
 
   IMPLICIT NONE
 
@@ -1395,10 +1398,14 @@ SUBROUTINE hp_acbn0_ns_a0(ns, hub_u)
                               HF%J(lch(m1,nt),lch(m2,nt),na)
         ENDIF
         !
-        ! One-shot, and no remove_ehub_u mask: both were ldaV input-file
-        ! concepts with no ldaU counterpart.  See the file header.
+        ! One-shot (no mixing).  remove_u is Lee & Son's remove_ehub_u,
+        ! applied exactly as new_ns_v.f90:1362 does - a product over both
+        ! channel indices, on the on-site block only, AFTER the ratio is
+        ! formed.  The channel stays in the manifold, so the N^IJ weights
+        ! and the ERI sums above are untouched.
         !
-        hub_u(na,m1,m2) = hub_u_(na,m1,m2)
+        hub_u(na,m1,m2) = hub_u_(na,m1,m2) * remove_u(nt,lch(m1,nt)) &
+                                           * remove_u(nt,lch(m2,nt))
         !
      ENDDO ! m2
      ENDDO ! m1
@@ -1857,9 +1864,9 @@ SUBROUTINE hp_acbn0_check_v()
   INTEGER :: nt, nath
   !
   IF ( .NOT.lda_plus_u ) CALL errore( 'hp_acbn0_check_v', &
-     'acbn0 = 2 needs a ground state with a Hubbard manifold: the pw.x run &
-     &had lda_plus_u = .false., so MODULE ldaU carries no manifold to project &
-     &onto.  Add a HUBBARD card to the pw.x input.', 1 )
+     'acbn0 > 0 needs a Hubbard manifold, but none was declared: set &
+     &acbn0_manifold(nt) in &INPUTHP (the pw.x ground state itself must be &
+     &a plain non-Hubbard SCF).', 1 )
   !
   ! ortho-atomic is a requirement, not a preference: the ACBN0 ratio is
   ! derived for an orthonormal projector basis.  orthoUwfc honours the input
@@ -1949,7 +1956,7 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   USE constants,   ONLY : rytoev, bohr_radius_angs
   USE cell_base,   ONLY : alat
   USE io_global,   ONLY : stdout, ionode
-  USE io_files,    ONLY : prefix
+  USE io_files,    ONLY : prefix, tmp_dir
   USE ions_base,   ONLY : nat, ityp, atm, ntyp => nsp
   USE lsda_mod,    ONLY : nspin
   USE ldaU,        ONLY : Hubbard_l, Hubbard_lmax, is_hubbard
@@ -1975,7 +1982,10 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   !
   !
   ics = nn_csize + 1
-  filename = 'eACBN0_hub.dat'
+  !
+  ! Written into outdir (tmp_dir), next to prefix.save, not the launch dir.
+  !
+  filename = TRIM(tmp_dir) // 'eACBN0_hub.dat'
   iunit = find_free_unit()
   OPEN( iunit, file = TRIM(filename), form = 'formatted', status = 'unknown' )
   !
@@ -2235,6 +2245,7 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
                                    deallocate_bec_type
   USE uspp_param,           ONLY : upf
   USE hp_acbn0_man,         ONLY : lm_max, lm, lch, ofs
+  USE ldaU_hp,              ONLY : remove_u
 
   IMPLICIT NONE
 
@@ -2947,10 +2958,15 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
                                  HF(1)%J(lch(m1,nt),lch(m2,nt),na,na)
         ENDIF
         !
-        ! One-shot, and no remove_ehub_u mask: both were ldaV input-file
-        ! concepts with no ldaU counterpart.
+        ! One-shot (no mixing).  remove_u is Lee & Son's remove_ehub_u,
+        ! applied exactly as new_ns_v.f90:1362-1371 does - a product over
+        ! both channel indices, on the on-site block only, AFTER the ratio
+        ! is formed.  V (every na1 /= na2 or nnc > 1 block) is never masked;
+        ! the channel stays in the manifold, so the N^IJ weights and the ERI
+        ! sums above are untouched.
         !
-        hub_v(na,na,m1,m2,1) = hub_v_(na,na,m1,m2)
+        hub_v(na,na,m1,m2,1) = hub_v_(na,na,m1,m2) * remove_u(nt,lch(m1,nt)) &
+                                                   * remove_u(nt,lch(m2,nt))
         !
      ENDDO ! m2
      ENDDO ! m1

@@ -110,6 +110,18 @@ MODULE ldaU_hp
   CHARACTER(LEN=3) :: acbn0_manifold2(ntypx) ! Second (background) channel, same syntax,
                                              ! e.g. Ga '4s' + '4p'.  Optional.
   !
+  INTEGER :: remove_u(ntypx,6)               ! Lee & Son's remove_ehub_u(a,b).  Mask on
+                                             ! the ON-SITE U only: remove_u(nt,l+1) = 0
+                                             ! (1 = s, 2 = p, 3 = d, the same l+1
+                                             ! convention as ehub_l_choice) zeroes every
+                                             ! on-site element of type nt with EITHER
+                                             ! index in that channel - applied as a
+                                             ! product over both indices, so the whole
+                                             ! row and column go, not just the diagonal.
+                                             ! Never touches V, the N^IJ weights or the
+                                             ! renormalised density matrices; the channel
+                                             ! stays in the manifold.  Default 1 (keep).
+  !
   REAL(DP) :: conv_thr_chi,      &          ! Threshold for the calculation of chi 
               thresh_init,       &          ! Initial threshold for the solution of 
                                             ! the linear system
