@@ -188,7 +188,9 @@ SUBROUTINE acbn0_manifold_setup()
   USE ldaU,             ONLY : lda_plus_u, lda_plus_u_kind, Hubbard_projectors, &
                                Hubbard_n, Hubbard_l, Hubbard_n2, Hubbard_l2,    &
                                Hubbard_n3, Hubbard_l3, Hubbard_U, Hubbard_U2,   &
-                               nwfcU, wfcU, backall, init_hubbard
+                               Hubbard_alpha, Hubbard_alpha_back, Hubbard_J0,   &
+                               Hubbard_beta, Hubbard_occ, nwfcU, wfcU, backall, &
+                               init_hubbard
   USE uspp_param,       ONLY : upf
   USE lsda_mod,         ONLY : nspin
   USE noncollin_module, ONLY : noncolin, npol
@@ -252,6 +254,22 @@ SUBROUTINE acbn0_manifold_setup()
            &(acbn0_l_choice is 0 there)', nt )
      ENDDO
   ENDDO
+  !
+  ! MODULE ldaU carries no initialisers.  In pw.x these come from
+  ! input_parameters via input.f90; on hp.x's read path they are set only when
+  ! the XML carries a Hubbard block, which a plain ground state does not.  So
+  ! everything init_hubbard reads is put into its "unset" state here first.
+  ! Hubbard_occ = -1 in particular: init_hubbard calls determine_hubbard_occ
+  ! only when it is negative, and offset_atom_wfc refuses a manifold whose
+  ! hubbard_occ is not > 0 ("Hubbard manifold with zero occupations").
+  !
+  Hubbard_U(:)          = 0.0_DP ;  Hubbard_U2(:)         = 0.0_DP
+  Hubbard_alpha(:)      = 0.0_DP ;  Hubbard_alpha_back(:) = 0.0_DP
+  Hubbard_J0(:)         = 0.0_DP ;  Hubbard_beta(:)       = 0.0_DP
+  Hubbard_n(:)  = -1 ;  Hubbard_n2(:) = -1 ;  Hubbard_n3(:) = -1
+  Hubbard_l(:)  = -1 ;  Hubbard_l2(:) = -1 ;  Hubbard_l3(:) = -1
+  backall(:)            = .FALSE.
+  Hubbard_occ(:,:)      = -1.0_DP
   !
   DO nt = 1, ntyp
      !
