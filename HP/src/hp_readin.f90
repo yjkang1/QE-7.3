@@ -134,7 +134,14 @@ SUBROUTINE hp_readin()
   ! Compute the trace of the occupation matrix and then compute
   ! the occupations and the magnetization
   !
-  CALL hp_ns_trace()
+  ! DFPT only.  hp_ns_trace reads rho%ns, which create_scf_type allocates
+  ! only when the XML said lda_plus_u - false for the plain ground state the
+  ! ACBN0 route requires - so it segfaults there; and its outputs (ns, magn
+  ! in ldaU_hp) feed hp_summary / hp_postproc, which the ACBN0 route never
+  ! reaches (hp_main stops after hp_acbn0).  The ACBN0 kernels build their
+  ! own occupation matrices from the projectors.
+  !
+  IF ( acbn0 == 0 ) CALL hp_ns_trace()
   !
   ! Make sure all the features used in the PWscf calculation 
   ! are actually supported by HP.
