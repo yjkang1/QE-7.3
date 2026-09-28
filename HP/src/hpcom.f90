@@ -61,14 +61,6 @@ MODULE ldaU_hp
              nah_pert,        &             ! Site number of the perturbed Hubbard atom
              nath_pert,       &             ! Number of actual perturbed Hubbard atoms in the primitive cell
              find_atpert,     &             ! Method of searching for atoms to be perturbed
-             acbn0,           &             ! Selects the (e)ACBN0 estimator instead of DFPT:
-                                            !   0 = DFPT only (default, stock hp.x)
-                                            !   1 = on-site U       (ACBN0)
-                                            !   2 = on-site U + V   (eACBN0)
-                                            ! When > 0, hp.x computes the Hubbard
-                                            ! parameters from the pseudo-hybrid ACBN0
-                                            ! functional, writes eACBN0_hub.dat, and
-                                            ! stops before the DFPT loop. See eACBN0.f90.
              iter_best,       &             ! Number of the iteration at which the best accuracy
                                             ! for chi was reached
              ntyp_new,        &             ! Maximum number of different types detected in the calculation
@@ -97,11 +89,6 @@ MODULE ldaU_hp
   CHARACTER(LEN=2)   :: code = 'HP'         ! Name of the code
   !
   INTEGER, PARAMETER :: maxter = 500        ! Maximum number of iterations
-  !
-  REAL(DP) :: nn_distance                   ! Inter-site cutoff d_IJ in Angstrom for
-                                            ! acbn0 = 2 (stage V3).  Negative means
-                                            ! "take ehub_nn_distance from the XML",
-                                            ! which needs a pw.x run with lda_plus_v.
   !
   REAL(DP) :: conv_thr_chi,      &          ! Threshold for the calculation of chi 
               thresh_init,       &          ! Initial threshold for the solution of 
