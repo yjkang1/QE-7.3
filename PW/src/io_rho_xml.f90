@@ -32,7 +32,8 @@ MODULE io_rho_xml
       ! by LSH WIY
       USE ldaV,             ONLY : lda_plus_v, lacbn0, acbn0_type, &
                                    ehub_u, ehub_v, ehub_lm, ehub_l, ehub_nn_vect, &
-                                   ehub_nn_dim, ehub_csize, ehub_lm_max, ehub_nnnc
+                                   ehub_nn_dim, ehub_csize, ehub_lm_max, ehub_nnnc, &
+                                   ehub_u_raw, ehub_v_raw
       ! by LSH WIY
       USE xc_lib,           ONLY : xclib_dft_is
       USE noncollin_module, ONLY : noncolin, domag
@@ -313,6 +314,21 @@ MODULE io_rho_xml
          !
          IF ( ionode ) THEN
             CLOSE( UNIT = iunoccv, STATUS = 'KEEP' )
+         ENDIF
+         !
+         ! [rawprint] raw (unmixed) one-shot U or V of the last SCF step, same
+         ! layout and precision as ehub_uv.txt, for reference only (never read back)
+         !
+         IF ( lacbn0 .AND. ionode ) THEN
+            IF ( acbn0_type == 1 .AND. ALLOCATED(ehub_u_raw) ) THEN
+               OPEN ( NEWUNIT = iunoccv, FILE = TRIM(dirname)//'ehub_uv_raw.txt', FORM = 'FORMATTED', STATUS = 'unknown')
+               WRITE ( iunoccv, *, IOSTAT = ierr ) ehub_u_raw
+               CLOSE( UNIT = iunoccv, STATUS = 'KEEP' )
+            ELSEIF ( acbn0_type /= 1 .AND. ALLOCATED(ehub_v_raw) ) THEN
+               OPEN ( NEWUNIT = iunoccv, FILE = TRIM(dirname)//'ehub_uv_raw.txt', FORM = 'FORMATTED', STATUS = 'unknown')
+               WRITE ( iunoccv, *, IOSTAT = ierr ) ehub_v_raw
+               CLOSE( UNIT = iunoccv, STATUS = 'KEEP' )
+            ENDIF
          ENDIF
          !
          ! by KSJ

@@ -240,7 +240,7 @@ SUBROUTINE new_ns_a0(ns)
   USE ldaV,                 ONLY : ehub_lm_max, ehub_lm, ehub_l, &
                                    ehub_mixing, ehub_u, wfcv,    &
                                    nwfcv, ofstv, remove_ehub_u,  &
-                                   write_ehub_uv
+                                   write_ehub_uv, ehub_u_raw
   USE lsda_mod,             ONLY : lsda, current_spin, nspin, isk
   USE wvfct,                ONLY : nbnd, wg
   USE io_global,            ONLY : stdout
@@ -568,6 +568,10 @@ SUBROUTINE new_ns_a0(ns)
   ENDDO ! na
   !
   ALLOCATE (ehub_u_(nat,ehub_lm_max,ehub_lm_max)) ; ehub_u_ = 0.0_DP
+  IF ( .NOT.ALLOCATED(ehub_u_raw) ) THEN   ! [rawprint]
+     ALLOCATE ( ehub_u_raw(SIZE(ehub_u,1),SIZE(ehub_u,2),SIZE(ehub_u,3)) )
+     ehub_u_raw = 0.0_DP
+  ENDIF
   !
   DO na = 1, nat
      nt = ityp(na)
@@ -593,6 +597,8 @@ SUBROUTINE new_ns_a0(ns)
                       remove_ehub_u(nt,ehub_l(m2,nt))
         ENDIF
         !
+        ehub_u_raw(na,m1,m2) = ehub_u_(na,m1,m2)   ! [rawprint]
+        !
         ehub_u(na,m1,m2) =                               &
               (1.0_DP - ehub_mixing)*ehub_u (na,m1,m2) + &
               (         ehub_mixing)*ehub_u_(na,m1,m2)
@@ -614,6 +620,9 @@ SUBROUTINE new_ns_a0(ns)
                                      ehub_u(na1,m2,m1))
         !
         ehub_u(na1,m2,m1) = ehub_u(na1,m1,m2)
+        ! [rawprint]
+        ehub_u_raw(na1,m1,m2) = 0.5D0 * (ehub_u_raw(na1,m1,m2) + ehub_u_raw(na1,m2,m1))
+        ehub_u_raw(na1,m2,m1) = ehub_u_raw(na1,m1,m2)
         !
      ENDDO
      ENDDO
@@ -644,7 +653,7 @@ SUBROUTINE new_ns_e0_1(ns)
                                    ehub_nn_vect, ehub_nn_leng, ehub_nn_dim,           &
                                    ehub_csize, ehub_nnnc, ehub_mixing, ehub_conv_thr, &
                                    ehub_v, ehub_v_diff, remove_ehub_u, write_ehub_uv, &
-                                   wfcv, nwfcv, ofstv, stop_acbn0
+                                   wfcv, nwfcv, ofstv, stop_acbn0, ehub_v_raw
   USE lsda_mod,             ONLY : lsda, current_spin, nspin, isk
   USE wvfct,                ONLY : nbnd, npwx, wg
   USE io_global,            ONLY : stdout
@@ -1346,6 +1355,10 @@ SUBROUTINE new_ns_e0_1(ns)
   ENDDO ! na
   !
   ALLOCATE ( ehub_v_(nat,nat,ehub_lm_max,ehub_lm_max) ) ; ehub_v_ = 0.0_DP
+  IF ( .NOT.ALLOCATED(ehub_v_raw) ) THEN   ! [rawprint]
+     ALLOCATE ( ehub_v_raw(SIZE(ehub_v,1),SIZE(ehub_v,2),SIZE(ehub_v,3),SIZE(ehub_v,4),SIZE(ehub_v,5)) )
+     ehub_v_raw = 0.0_DP
+  ENDIF
   !
   DO na = 1, nat
      nt = ityp(na)
@@ -1373,6 +1386,8 @@ SUBROUTINE new_ns_e0_1(ns)
         !
         IF ( stop_acbn0 ) ehub_v_diff(na,na,m1,m2,1) = ABS( ehub_v (na,na,m1,m2,1) &
                                                      -      ehub_v_(na,na,m1,m2  ) )
+        !
+        ehub_v_raw(na,na,m1,m2,1) = ehub_v_(na,na,m1,m2)   ! [rawprint]
         !
         ehub_v(na,na,m1,m2,1)                                 &
             = (1.0_DP - ehub_mixing)*ehub_v (na,na,m1,m2,1) + &
@@ -1552,6 +1567,8 @@ SUBROUTINE new_ns_e0_1(ns)
         !
         IF ( stop_acbn0 ) ehub_v_diff(na1,na2,m1,m2,1) = ABS( ehub_v (na1,na2,m1,m2,1) &
                                                        -      ehub_v_(na1,na2,m1,m2  ) )
+        !
+        ehub_v_raw(na1,na2,m1,m2,1) = ehub_v_(na1,na2,m1,m2)   ! [rawprint]
         !
         ehub_v(na1,na2,m1,m2,1)                                 &
             = (1.0_DP - ehub_mixing)*ehub_v (na1,na2,m1,m2,1) + &
@@ -1742,6 +1759,8 @@ SUBROUTINE new_ns_e0_1(ns)
            IF ( stop_acbn0 ) ehub_v_diff(na1,na2,m1,m2,nnc) = ABS( ehub_v (na1,na2,m1,m2,nnc) &
                                                             -      ehub_v_(na1,na2,m1,m2    ) )
            !
+           ehub_v_raw(na1,na2,m1,m2,nnc) = ehub_v_(na1,na2,m1,m2)   ! [rawprint]
+           !
            ehub_v(na1,na2,m1,m2,nnc) =                               &
                  (1.0_DP - ehub_mixing)*ehub_v (na1,na2,m1,m2,nnc) + &
                  (         ehub_mixing)*ehub_v_(na1,na2,m1,m2    )
@@ -1783,6 +1802,9 @@ SUBROUTINE new_ns_e0_1(ns)
                                            ehub_v(na2,na1,m2,m1,1))
         !
         ehub_v(na2,na1,m2,m1,1) = ehub_v(na1,na2,m1,m2,1)
+        ! [rawprint]
+        ehub_v_raw(na1,na2,m1,m2,1) = 0.5D0 * (ehub_v_raw(na1,na2,m1,m2,1) + ehub_v_raw(na2,na1,m2,m1,1))
+        ehub_v_raw(na2,na1,m2,m1,1) = ehub_v_raw(na1,na2,m1,m2,1)
         !
      ENDDO ! m2
      ENDDO ! m1
@@ -1792,8 +1814,10 @@ SUBROUTINE new_ns_e0_1(ns)
   !
   DO na1 = 1, nat
   DO na2 = 1, nat
-     IF ( na1 /= na2 .AND. ehub_nn_vect(ics,ics,ics,na1,na2) == 0 ) &
+     IF ( na1 /= na2 .AND. ehub_nn_vect(ics,ics,ics,na1,na2) == 0 ) THEN
         ehub_v(na1,na2,:,:,1) = 0.0_DP
+        ehub_v_raw(na1,na2,:,:,1) = 0.0_DP   ! [rawprint]
+     ENDIF
   ENDDO ! na2
   ENDDO ! na1
 
@@ -1819,7 +1843,7 @@ SUBROUTINE new_ns_e0_2(ns)
                                    ehub_nnnc, ehub_mixing,       &
                                    ehub_v, remove_ehub_u,        &
                                    wfcv, nwfcv, ofstv,           &
-                                   write_ehub_uv
+                                   write_ehub_uv, ehub_v_raw
   USE lsda_mod,             ONLY : lsda, current_spin, nspin, isk
   USE wvfct,                ONLY : nbnd, npwx, wg
   USE io_global,            ONLY : stdout
@@ -2515,6 +2539,10 @@ SUBROUTINE new_ns_e0_2(ns)
   ENDDO ! na
   !
   ALLOCATE ( ehub_v_(nat,nat,ehub_lm_max,ehub_lm_max) ) ; ehub_v_ = 0.0_DP
+  IF ( .NOT.ALLOCATED(ehub_v_raw) ) THEN   ! [rawprint]
+     ALLOCATE ( ehub_v_raw(SIZE(ehub_v,1),SIZE(ehub_v,2),SIZE(ehub_v,3),SIZE(ehub_v,4),SIZE(ehub_v,5)) )
+     ehub_v_raw = 0.0_DP
+  ENDIF
   !
   DO na = 1, nat
      nt = ityp(na)
@@ -2539,6 +2567,8 @@ SUBROUTINE new_ns_e0_2(ns)
                           remove_ehub_u(nt,ehub_l(m1,nt))  * &
                           remove_ehub_u(nt,ehub_l(m2,nt))
         ENDIF
+        !
+        ehub_v_raw(na,na,m1,m2,1) = ehub_v_(na,na,m1,m2)   ! [rawprint]
         !
         ehub_v(na,na,m1,m2,1)                                 &
             = (1.0_DP - ehub_mixing)*ehub_v (na,na,m1,m2,1) + &
@@ -2711,6 +2741,8 @@ SUBROUTINE new_ns_e0_2(ns)
         !
         ehub_v_(na1,na2,m1,m2) = &
                (E0(1)%V(m1,m2,na1,na2) / HF(1)%V(m1,m2,na1,na2)) / 2.0_DP
+        !
+        ehub_v_raw(na1,na2,m1,m2,1) = ehub_v_(na1,na2,m1,m2)   ! [rawprint]
         !
         ehub_v(na1,na2,m1,m2,1)                                 &
             = (1.0_DP - ehub_mixing)*ehub_v (na1,na2,m1,m2,1) + &
@@ -2897,6 +2929,8 @@ SUBROUTINE new_ns_e0_2(ns)
            ehub_v_(na1,na2,m1,m2) = &
                   (E0(nnc)%V(m1,m2,na1,na2) / HF(nnc)%V(m1,m2,na1,na2)) / 2.0_DP
            !
+           ehub_v_raw(na1,na2,m1,m2,nnc) = ehub_v_(na1,na2,m1,m2)   ! [rawprint]
+           !
            ehub_v(na1,na2,m1,m2,nnc) =                               &
                  (1.0_DP - ehub_mixing)*ehub_v (na1,na2,m1,m2,nnc) + &
                  (         ehub_mixing)*ehub_v_(na1,na2,m1,m2    )
@@ -2938,6 +2972,9 @@ SUBROUTINE new_ns_e0_2(ns)
                                            ehub_v(na2,na1,m2,m1,1))
         !
         ehub_v(na2,na1,m2,m1,1) = ehub_v(na1,na2,m1,m2,1)
+        ! [rawprint]
+        ehub_v_raw(na1,na2,m1,m2,1) = 0.5D0 * (ehub_v_raw(na1,na2,m1,m2,1) + ehub_v_raw(na2,na1,m2,m1,1))
+        ehub_v_raw(na2,na1,m2,m1,1) = ehub_v_raw(na1,na2,m1,m2,1)
         !
      ENDDO ! m2
      ENDDO ! m1
@@ -2947,8 +2984,10 @@ SUBROUTINE new_ns_e0_2(ns)
   !
   DO na1 = 1, nat
   DO na2 = 1, nat
-     IF ( na1 /= na2 .AND. ehub_nn_vect(ics,ics,ics,na1,na2) == 0 ) &
+     IF ( na1 /= na2 .AND. ehub_nn_vect(ics,ics,ics,na1,na2) == 0 ) THEN
         ehub_v(na1,na2,:,:,1) = 0.0_DP
+        ehub_v_raw(na1,na2,:,:,1) = 0.0_DP   ! [rawprint]
+     ENDIF
   ENDDO ! na2
   ENDDO ! na1
 
@@ -4095,7 +4134,7 @@ SUBROUTINE new_ns_e0_nc_1(ns)
                                     ehub_nn_vect, ehub_nn_leng, ehub_nn_dim,           &
                                     ehub_csize, ehub_nnnc, ehub_mixing, ehub_conv_thr, &
                                     ehub_v, ehub_v_diff, remove_ehub_u, write_ehub_uv, &
-                                    wfcv, nwfcv, ofstv, stop_acbn0, counter_lm
+                                    wfcv, nwfcv, ofstv, stop_acbn0, counter_lm, ehub_v_raw
    USE lsda_mod,             ONLY : lsda, current_spin, nspin, isk
    USE noncollin_module,     ONLY : npol, noncolin, domag, lspinorb
    USE wvfct,                ONLY : nbnd, npwx, wg
@@ -4728,6 +4767,10 @@ SUBROUTINE new_ns_e0_nc_1(ns)
    ENDDO ! na
    !
    ALLOCATE ( ehub_v_(nat,nat,ehub_lm_max,ehub_lm_max) ) ; ehub_v_ = 0.0_DP
+   IF ( .NOT.ALLOCATED(ehub_v_raw) ) THEN   ! [rawprint]
+      ALLOCATE ( ehub_v_raw(SIZE(ehub_v,1),SIZE(ehub_v,2),SIZE(ehub_v,3),SIZE(ehub_v,4),SIZE(ehub_v,5)) )
+      ehub_v_raw = 0.0_DP
+   ENDIF
    !
    DO na = 1, nat
       nt = ityp(na)
@@ -4755,6 +4798,8 @@ SUBROUTINE new_ns_e0_nc_1(ns)
          !
          IF ( stop_acbn0 ) ehub_v_diff(na,na,m1,m2,1) = ABS( ehub_v (na,na,m1,m2,1) &
                                                       -      ehub_v_(na,na,m1,m2  ) )
+         !
+         ehub_v_raw(na,na,m1,m2,1) = ehub_v_(na,na,m1,m2)   ! [rawprint]
          !
          ehub_v(na,na,m1,m2,1)                                 &
              = (1.0_DP - ehub_mixing)*ehub_v (na,na,m1,m2,1) + &
@@ -4940,6 +4985,8 @@ SUBROUTINE new_ns_e0_nc_1(ns)
          !
          IF ( stop_acbn0 ) ehub_v_diff(na1,na2,m1,m2,1) = ABS( ehub_v (na1,na2,m1,m2,1) &
                                                         -      ehub_v_(na1,na2,m1,m2  ) )
+         !
+         ehub_v_raw(na1,na2,m1,m2,1) = ehub_v_(na1,na2,m1,m2)   ! [rawprint]
          !
          ehub_v(na1,na2,m1,m2,1)                                 &
              = (1.0_DP - ehub_mixing)*ehub_v (na1,na2,m1,m2,1) + &
@@ -5136,6 +5183,8 @@ SUBROUTINE new_ns_e0_nc_1(ns)
             IF ( stop_acbn0 ) ehub_v_diff(na1,na2,m1,m2,nnc) = ABS( ehub_v (na1,na2,m1,m2,nnc) &
                                                              -      ehub_v_(na1,na2,m1,m2    ) )
             !
+            ehub_v_raw(na1,na2,m1,m2,nnc) = ehub_v_(na1,na2,m1,m2)   ! [rawprint]
+            !
             ehub_v(na1,na2,m1,m2,nnc) =                               &
                   (1.0_DP - ehub_mixing)*ehub_v (na1,na2,m1,m2,nnc) + &
                   (         ehub_mixing)*ehub_v_(na1,na2,m1,m2    )
@@ -5177,6 +5226,9 @@ SUBROUTINE new_ns_e0_nc_1(ns)
                                             ehub_v(na2,na1,m2,m1,1))
          !
          ehub_v(na2,na1,m2,m1,1) = ehub_v(na1,na2,m1,m2,1)
+         ! [rawprint]
+         ehub_v_raw(na1,na2,m1,m2,1) = 0.5D0 * (ehub_v_raw(na1,na2,m1,m2,1) + ehub_v_raw(na2,na1,m2,m1,1))
+         ehub_v_raw(na2,na1,m2,m1,1) = ehub_v_raw(na1,na2,m1,m2,1)
          !
       ENDDO ! m2
       ENDDO ! m1
@@ -5186,8 +5238,10 @@ SUBROUTINE new_ns_e0_nc_1(ns)
    !
    DO na1 = 1, nat
    DO na2 = 1, nat
-      IF ( na1 /= na2 .AND. ehub_nn_vect(ics,ics,ics,na1,na2) == 0 ) &
+      IF ( na1 /= na2 .AND. ehub_nn_vect(ics,ics,ics,na1,na2) == 0 ) THEN
          ehub_v(na1,na2,:,:,1) = 0.0_DP
+         ehub_v_raw(na1,na2,:,:,1) = 0.0_DP   ! [rawprint]
+      ENDIF
    ENDDO ! na2
    ENDDO ! na1
  

@@ -34,6 +34,8 @@ MODULE ldaV
     ehub_u(:,:,:),              & ! ehub_u(na, m1, m2)
     ehub_v_diff(:,:,:,:,:),     &
     ehub_u_diff(:,:,:),         &
+    ehub_u_raw(:,:,:),          & ! raw (unmixed) one-shot U of the current SCF step [rawprint]
+    ehub_v_raw(:,:,:,:,:),      & ! raw (unmixed) one-shot V of the current SCF step [rawprint]
     ehub_nn_leng(:,:,:,:,:),    &
     ehub_nn_leng_all(:,:,:,:,:) 
 
@@ -575,6 +577,8 @@ CONTAINS
      IF ( ALLOCATED(ehub_nn_leng_all) ) DEALLOCATE ( ehub_nn_leng_all ) 
      IF ( ALLOCATED(ehub_v) )           DEALLOCATE ( ehub_v )
      IF ( ALLOCATED(ehub_u) )           DEALLOCATE ( ehub_u )
+     IF ( ALLOCATED(ehub_u_raw) )       DEALLOCATE ( ehub_u_raw )
+     IF ( ALLOCATED(ehub_v_raw) )       DEALLOCATE ( ehub_v_raw )
      IF ( ALLOCATED(ehub_l) )           DEALLOCATE ( ehub_l )
      IF ( ALLOCATED(ehub_v_diff) )      DEALLOCATE ( ehub_v_diff )
      IF ( ALLOCATED(ehub_u_diff) )      DEALLOCATE ( ehub_u_diff )
@@ -728,6 +732,96 @@ CONTAINS
      ENDDO ! n2
      ENDDO ! n1
   ENDIF
+
+
+  ! [rawprint] reference print: mixed (module) value next to the raw one-shot
+  ! value of this step, full precision, eV.  Only meaningful with lacbn0.
+  !
+  IF ( lacbn0 ) THEN
+     IF ( acbn0_type == 1 ) THEN
+        IF ( ALLOCATED(ehub_u_raw) ) THEN
+           WRITE ( stdout,'(/5x,a,f6.3,a)' ) &
+              'U (eV) MIXED   : U_n = (1-m)*U_{n-1} + m*U_raw,  m = ehub_mixing = ', ehub_mixing
+           CALL rawprint_u ( ehub_u )
+           WRITE ( stdout,'(/5x,a)' ) &
+              'U (eV) RAW     : one-shot U_raw from the current wavefunctions, no mixing'
+           CALL rawprint_u ( ehub_u_raw )
+        ENDIF
+     ELSE
+        IF ( ALLOCATED(ehub_v_raw) ) THEN
+           WRITE ( stdout,'(/5x,a,f6.3,a)' ) &
+              'V (eV) MIXED   : V_n = (1-m)*V_{n-1} + m*V_raw,  m = ehub_mixing = ', ehub_mixing
+           CALL rawprint_v ( ehub_v )
+           WRITE ( stdout,'(/5x,a)' ) &
+              'V (eV) RAW     : one-shot V_raw from the current wavefunctions, no mixing'
+           CALL rawprint_v ( ehub_v_raw )
+        ENDIF
+     ENDIF
+  ENDIF
+
+  CONTAINS
+
+  SUBROUTINE rawprint_u ( u )
+  REAL(DP), INTENT(IN) :: u(:,:,:)
+  INTEGER :: na, nt, m1, m2
+  DO na = 1, nat
+     nt = ityp(na)
+     IF ( ehub_lm(nt) == 0 ) CYCLE
+     WRITE ( stdout,'(3(a,i2),a)' ) &
+           '     [ ', na, ', ', 2*MAXVAL(ehub_l(:,nt))-1, ', ', 2*MAXVAL(ehub_l(:,nt))-1, '  ]'
+     DO m1 = 1, ehub_lm(nt)
+        WRITE ( stdout,'(4x,16f16.10)' ) (u(na,m1,m2) * rytoev, m2 = 1, ehub_lm(nt))
+     ENDDO
+     WRITE ( stdout,* ) ''
+  ENDDO
+  END SUBROUTINE rawprint_u
+
+  SUBROUTINE rawprint_v ( v )
+  REAL(DP), INTENT(IN) :: v(:,:,:,:,:)
+  INTEGER :: na1, na2, nt1, nt2, m1, m2, n1, n2, n3, nnc, ics
+  ics = ehub_csize + 1
+  DO na1 = 1, nat
+     nt1 = ityp(na1)
+     IF ( ehub_lm(nt1) == 0 ) CYCLE
+  DO na2 = 1, nat
+     nt2 = ityp(na2)
+     IF ( ehub_lm(nt2) == 0 ) CYCLE
+     IF ( na1 /= na2 .AND. ehub_nn_vect(ics,ics,ics,na1,na2) == 0 ) CYCLE
+     WRITE ( stdout,'(4(a,i2),a)' ) &
+           '     [ ', na1, ', ', na2, ', ', ehub_lm(nt1), ', ', ehub_lm(nt2), '  ]'
+     WRITE ( stdout,'(a,i2,2i6,a)' ) '     [ ', 0, 0, 0, '  ]'
+     DO m1 = 1, ehub_lm(nt1)
+        WRITE ( stdout,'(4x,16f16.10)' ) (v(na1,na2,m1,m2,1) * rytoev, m2 = 1, ehub_lm(nt2))
+     ENDDO
+     WRITE ( stdout,* ) ''
+  ENDDO ! na2
+  ENDDO ! na1
+  nnc = 2
+  DO n1 = -1*ehub_nn_dim(1), ehub_nn_dim(1)
+  DO n2 = -1*ehub_nn_dim(2), ehub_nn_dim(2)
+  DO n3 = -1*ehub_nn_dim(3), ehub_nn_dim(3)
+     IF ( n1 == 0 .AND. n2 == 0 .AND. n3 == 0 ) CYCLE
+     DO na1 = 1, nat
+        nt1 = ityp(na1)
+        IF ( ehub_lm(nt1) == 0 ) CYCLE
+     DO na2 = 1, nat
+        nt2 = ityp(na2)
+        IF ( ehub_lm(nt2) == 0 ) CYCLE
+        IF ( ehub_nn_vect(n1+ics,n2+ics,n3+ics,na1,na2) == 0 ) CYCLE
+        WRITE ( stdout,'(4(a,i2),a)' ) &
+              '     [ ', na1, ', ', na2, ', ', ehub_lm(nt1), ', ', ehub_lm(nt2), '  ]'
+        WRITE ( stdout,'(a,i2,2i6,a)' ) '     [ ', n1, n2, n3, '  ]'
+        DO m1 = 1, ehub_lm(nt1)
+           WRITE ( stdout,'(4x,16f16.10)' ) (v(na1,na2,m1,m2,nnc) * rytoev, m2 = 1, ehub_lm(nt2))
+        ENDDO
+        WRITE ( stdout,* ) ''
+     ENDDO ! na2
+     ENDDO ! na1
+     IF ( MAXVAL(ehub_nn_vect(n1+ics,n2+ics,n3+ics,:,:)) == 1 ) nnc = nnc + 1
+  ENDDO ! n3
+  ENDDO ! n2
+  ENDDO ! n1
+  END SUBROUTINE rawprint_v
 
   END SUBROUTINE write_ehub_uv
   
