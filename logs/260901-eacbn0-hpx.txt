@@ -167,7 +167,8 @@ S0  PASSED.  pw.x converged in 37 iterations, 2m26s.
     single-channel atom (ehub_u depends on m1,m2 only through their l).
     Ni1 vs Ni2 differ by 0.0008 eV; they are AFM partners and should be
     equivalent under a spin flip, so that is SCF residue, not physics.
-    For reference, DFPT on the official cell gave Ni-3d 6.7427, O-2p 7.3243.
+    For reference, DFPT on the official ../NiO ground state gave Ni-3d 6.7427,
+    O-2p 7.3243.
     Different estimator - ACBN0 puts Ni higher and O much lower.
 
 S1  FAILED.  davcio error #10, "unit is not opened", on all ranks.
@@ -462,7 +463,7 @@ Fix: two steps in one job (NiO_ref1shot/qe.sh, job 491702, 50 s).
 
 CONTROL (this is what makes the comparison apples-to-apples):
     step1  total energy = -737.16322501 Ry
-    official ../NiO        = -737.16322501 Ry     identical to 8 decimals
+    official ../NiO     = -737.16322501 Ry     identical to 8 decimals
 
 RESULT
                         pw.x one-shot     hp.x S3b
@@ -477,7 +478,7 @@ opposite sides of the rounding boundary, and/or pool-summation order.  Ni
 agrees to all six printed figures.
 
 => the +U chain is now validated end to end against pw.x on BOTH ground states:
-       S0/S1/S2/S3a   ACBN0-converged state   9.2501 / 9.2509 / 4.2471
+       S0/S1/S2/S3a   ACBN0-converged state      9.2501 / 9.2509 / 4.2471
        S3b            official bare-DFT state   10.5455 / 10.5455 / 4.2718
 
 REGRESSION (job 491691): after renaming hp_acbn0 -> hp_acbn0_u and adding the
@@ -763,7 +764,7 @@ convergence-path noise, not part of the Hubbard tables.
   S1  hp.x + libpw new_ns_a0                          identical
   S2  hp.x + our hp_acbn0_ns_a0                       byte-identical
   S3a hp.x, ldaV -> ldaU                              identical
-  S3b hp.x on the OFFICIAL bare-DFT state               10.5455 / 10.5455 / 4.2717
+  S3b hp.x on the OFFICIAL bare-DFT state            10.5455 / 10.5455 / 4.2717
       vs pw.x one-shot on the same state             10.5455 / 10.5455 / 4.2718
       control: step1 E_tot = official E_tot = -737.16322501 Ry
 
