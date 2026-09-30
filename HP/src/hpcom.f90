@@ -67,7 +67,7 @@ MODULE ldaU_hp
                                             !   2 = on-site U + V   (eACBN0)
                                             ! When > 0, hp.x computes the Hubbard
                                             ! parameters from the pseudo-hybrid ACBN0
-                                            ! functional, writes eACBN0_hub.dat, and
+                                            ! functional, writes eACBN0_hub_dev.dat, and
                                             ! stops before the DFPT loop. See eACBN0.f90.
              iter_best,       &             ! Number of the iteration at which the best accuracy
                                             ! for chi was reached

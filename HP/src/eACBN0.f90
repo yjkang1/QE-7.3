@@ -932,7 +932,7 @@ END SUBROUTINE hp_acbn0_check
 SUBROUTINE hp_acbn0_write( ns, hub_u )
   !---------------------------------------------------------------------
   !
-  ! Write the ACBN0 Hubbard parameters to eACBN0_hub.dat (and to stdout).
+  ! Write the ACBN0 Hubbard parameters to eACBN0_hub_dev.dat (and to stdout).
   !
   ! Note on the "scalar U" column: hub_u(na,m1,m2) is an (m1,m2) matrix, but
   ! the kernel builds it as
@@ -969,7 +969,7 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
   !
   ! Written into outdir (tmp_dir), next to prefix.save, not the launch dir.
   !
-  filename = TRIM(tmp_dir) // 'eACBN0_hub.dat'
+  filename = TRIM(tmp_dir) // 'eACBN0_hub_dev.dat'
   iunit = find_free_unit()
   OPEN( iunit, file = TRIM(filename), form = 'formatted', status = 'unknown' )
   !
@@ -2350,7 +2350,7 @@ END SUBROUTINE hp_acbn0_dump_u
 SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   !---------------------------------------------------------------------
   !
-  ! Write the eACBN0 parameters to eACBN0_hub.dat.
+  ! Write the eACBN0 parameters to eACBN0_hub_dev.dat.
   !
   ! The on-site U is the na1 = na2, cell [0 0 0] block of hub_v, not a
   ! separate array.  Howto2.pdf: "A = B and l = m = n = 0 >>> on-site U
@@ -2389,7 +2389,7 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   !
   ! Written into outdir (tmp_dir), next to prefix.save, not the launch dir.
   !
-  filename = TRIM(tmp_dir) // 'eACBN0_hub.dat'
+  filename = TRIM(tmp_dir) // 'eACBN0_hub_dev.dat'
   iunit = find_free_unit()
   OPEN( iunit, file = TRIM(filename), form = 'formatted', status = 'unknown' )
   !
