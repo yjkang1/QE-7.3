@@ -676,7 +676,7 @@ Two facts that matter:
    parameters therefore ride along with the electronic SCF rather than in an outer loop —
    `ehub_mixing = 0.7` is what keeps that stable.
 2. **`rho%ne0` participates in density mixing** (`scf_mod.f90:707,753,842,1671-1740`), exactly like
-   `rho%ns` in stock QE. Its contribution enters the SCF error estimate.
+   `rho%ns` in official QE. Its contribution enters the SCF error estimate.
 
 ### 6.2 `new_ns_v` I/O contract
 
@@ -830,7 +830,7 @@ and there are several live copies (`rho`, `rhoin`, `v`) **plus the Broyden histo
 (`mixing_ndim`, default 8) — so multiply by ~12. At `nat = 100` that is **~1.3 GB per MPI rank**,
 duplicated on every rank.
 
-Stock QE's DFT+U+V avoids this entirely: `ldaU.f90:444` uses
+Official QE's DFT+U+V avoids this entirely: `ldaU.f90:444` uses
 `nsg(ldmx_tot, ldmx_tot, max_num_neighbors, nat, nspin)` — a *neighbour-list* index instead of a
 dense `(nat, nat, ncell)` index. Same information, `nat × 20` instead of `nat² × 27`.
 

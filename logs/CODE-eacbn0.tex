@@ -265,7 +265,7 @@ the \C{nnnc} count from \C{input.f90:2144}, but built from \C{tau}/\C{at}/\C{ala
 and a cutoff rather than read from \C{ldaV}. Also \C{hp_acbn0_symmetry} and
 \C{hp_acbn0_get_nnc}, from \C{PW/src/hubbard_nns.f90}. \\
 \addlinespace
-\C{MODULE hp_acbn0_man} & The manifold. Maps stock \C{ldaU}'s \C{ll(m,nt)},
+\C{MODULE hp_acbn0_man} & The manifold. Maps official \C{ldaU}'s \C{ll(m,nt)},
 \C{ldim_u}, \C{ldmx_tot} and the three projector blocks
 (\C{offsetU}/\C{_back}/\C{_back1}) onto the contiguous view
 \C{lm}/\C{lch}/\C{ofs} that the kernels are written against. Entirely new ---
@@ -313,7 +313,7 @@ authors' own \C{GaAs.acbn0.in_noncollienar} sets \C{remove_ehub_u(1,1) = 0}.
 \C{read_file} buffers the wavefunctions then closes the unit with
 \C{close_buffer(...,'KEEP')}. \C{'KEEP'} preserves the \emph{files}, but the call
 also deregisters the unit, so \C{get_buffer} falls through to \C{davcio} on a
-closed unit. Stock \C{hp.x} never trips this because DFPT reads through
+closed unit. Official \C{hp.x} never trips this because DFPT reads through
 \C{iuwfc}, opened later.
 
 \item[\textcolor{rust}{Bug 3 --- \C{hubbard_get_nnc} returns an undefined index.}]
