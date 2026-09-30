@@ -188,7 +188,7 @@ no stage changes two things at once. Ten rungs, each moving exactly one of
      1/S1/{\textbf{our driver} \C{eACBN0.f90}},
      2/S2/{\textbf{our kernel} \C{hp_acbn0_ns_a0}},
      3/S3a/{\textbf{\C{ldaU}} bookkeeping},
-     4/S3b/{\textbf{stock bare-DFT} ground state}} {
+     4/S3b/{\textbf{official bare-DFT} ground state}} {
      \fill[pale] (0,\i) rectangle (5.6,{\i+0.75});
      \draw[accent,line width=1pt] (0,\i) -- (0,{\i+0.75});
      \node[anchor=west,accent] at (0.15,{\i+0.38}) {\bfseries \lab};
@@ -199,7 +199,7 @@ no stage changes two things at once. Ten rungs, each moving exactly one of
      1/V1/{\textbf{our driver}},
      2/V2/{\textbf{our kernel} \C{hp_acbn0_ns_e0_1}},
      3/V3a/{\textbf{\C{ldaU}} + own neighbour table},
-     4/V3b/{\textbf{stock bare-DFT} ground state}} {
+     4/V3b/{\textbf{official bare-DFT} ground state}} {
      \fill[palerust] (6.4,\i) rectangle (12.0,{\i+0.75});
      \draw[rust,line width=1pt] (6.4,\i) -- (6.4,{\i+0.75});
      \node[anchor=west,rust] at (6.55,{\i+0.38}) {\bfseries \lab};
@@ -223,13 +223,13 @@ S0  & \C{pw.x sum_band} & libpw \C{new_ns_a0} & \C{ldaV} & ACBN0-converged & 9.2
 S1  & \emph{\C{eACBN0.f90}} & libpw \C{new_ns_a0} & \C{ldaV} & same & identical \\
 S2  & \C{eACBN0.f90} & \emph{\C{hp_acbn0_ns_a0}} & \C{ldaV} & same & byte-identical \\
 S3a & \C{eACBN0.f90} & our kernel & \emph{\C{ldaU}} & same & identical \\
-S3b & \C{eACBN0.f90} & our kernel & \C{ldaU} & \emph{stock bare-DFT} & 10.5455 / 4.2717 \\
+S3b & \C{eACBN0.f90} & our kernel & \C{ldaU} & \emph{official bare-DFT} & 10.5455 / 4.2717 \\
 \midrule
 V0  & \C{pw.x sum_band} & libpw \C{new_ns_e0_1} & \C{ldaV} & eACBN0-converged & 7.7065 / 2.6538 $+\,V$ \\
 V1  & \emph{\C{eACBN0.f90}} & libpw \C{new_ns_e0_1} & \C{ldaV} & same & identical, 456 lines \\
 V2  & \C{eACBN0.f90} & \emph{\C{hp_acbn0_ns_e0_1}} & \C{ldaV} & same & identical, 456 lines \\
 V3a & \C{eACBN0.f90} & our kernel & \emph{\C{ldaU}} & same & identical, 456 lines \\
-V3b & \C{eACBN0.f90} & our kernel & \C{ldaU} & \emph{stock bare-DFT} & 10.5455 / 4.2717 $+\,V$ \\
+V3b & \C{eACBN0.f90} & our kernel & \C{ldaU} & \emph{official bare-DFT} & 10.5455 / 4.2717 $+\,V$ \\
 V4  & \C{eACBN0.f90} & our kernel & \C{ldaU} \emph{+ background} & any & \emph{multi-channel}, 204 lines \\
 \bottomrule
 \end{tabular}
@@ -240,11 +240,11 @@ V4  & \C{eACBN0.f90} & our kernel & \C{ldaU} \emph{+ background} & any & \emph{m
 
 S3b changes the input \emph{data}, not the code, so its number legitimately
 moves and cannot be checked by a diff against S3a. Getting \C{pw.x} to evaluate
-ACBN0 on a stock ground state was blocked at first: with \C{lda_plus_v} set,
+ACBN0 on an official ground state was blocked at first: with \C{lda_plus_v} set,
 \C{read_scf} reads \C{occupation_uv.txt} unconditionally
-(\C{io_rho_xml.f90:644}) and a stock save has only the \C{ldaU}
+(\C{io_rho_xml.f90:644}) and an official save has only the \C{ldaU}
 \C{occup.txt}. Solved in two steps --- step~1 with \C{lacbn0 = .false.} (so
-$U^{\text{ehub}} = V^{\text{ehub}} = 0$ and the Hamiltonian is the stock one)
+$U^{\text{ehub}} = V^{\text{ehub}} = 0$ and the Hamiltonian is the official one)
 writes the file; step~2 does one ACBN0 evaluation on it.
 
 \begin{center}\small
@@ -257,7 +257,7 @@ Ni2 3d & 10.5455 & 10.5455 & exact \\
 O \ 2p &  4.2718 &  4.2717 & last printed digit \\
 $\mathrm{Tr}[n_s]$ atom 1 & 8.46278 & 8.4628 & exact \\
 \midrule
-\multicolumn{4}{l}{\footnotesize control: step-1 $E_{\rm tot}$ = stock \C{../NiO} $E_{\rm tot}$ = $-737.16322501$ Ry}\\
+\multicolumn{4}{l}{\footnotesize control: step-1 $E_{\rm tot}$ = official \C{../NiO} $E_{\rm tot}$ = $-737.16322501$ Ry}\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -338,7 +338,7 @@ the $s$-channel $U$.
 \C{read_file} buffers the wavefunctions to \C{iunwfc} and then closes it with
 \C{close_buffer(..., 'KEEP')} (\C{read_file_new.f90:62}). \C{'KEEP'} preserves
 the \emph{files}, but the call also deregisters the unit, so \C{get_buffer}
-falls through to \C{davcio} on a closed unit. Stock \C{hp.x} never trips this
+falls through to \C{davcio} on a closed unit. Official \C{hp.x} never trips this
 because DFPT reads through \C{iuwfc}, which is opened later in \C{hp_openfil_q}.
 
 \subsection*{Bug 3 --- \texttt{hubbard_get_nnc} returns an undefined index \ \textcolor{rust}{(crash, or worse)}}
@@ -349,7 +349,7 @@ falls through untouched. \C{hubbard_symmetry} then asks for the index of a
 \emph{rotated} cell --- which is not guaranteed to be one of the occupied ones
 --- and \C{symmetrize_n5} indexes \C{n(nnc)} with whatever was on the stack.
 
-It never fires on the fork's own NiO ground state; it fires on the stock one,
+It never fires on the fork's own NiO ground state; it fires on the official one,
 with an \emph{identical} neighbour table, identical symmetry (12 operations)
 and identical manifold. In an optimised build a garbage index is silent
 whenever it happens to land in a mapped page. The optimised build gave only a
@@ -490,7 +490,7 @@ Ga on-site [1,1,4,4] cell [0 0 0]
 % ================================================================
 \section{What the two estimators actually say}
 
-Both numbers below come from the \emph{same} NiO ground state (stock
+Both numbers below come from the \emph{same} NiO ground state (official
 \C{../NiO}: $U \approx 0$, ortho-atomic projectors, identical manifold). This is
 the point of the whole exercise --- before this work, the two estimates could
 not be taken from one run.
@@ -521,7 +521,7 @@ not be taken from one run.
 \addplot[draw=accent,fill=accent!35]   coordinates {(Ni 3d,9.2501)  (O 2p,4.2471)};
 \addplot[draw=mute,fill=mute!30]       coordinates {(Ni 3d,7.7065)  (O 2p,2.6538)};
 \addplot[draw=rust,fill=rust!75]       coordinates {(Ni 3d,6.7427)  (O 2p,7.3243)};
-\legend{ACBN0 one-shot, ACBN0 self-consistent, eACBN0 $+V$ self-consistent, DFPT (stock \texttt{hp.x})}
+\legend{ACBN0 one-shot, ACBN0 self-consistent, eACBN0 $+V$ self-consistent, DFPT (official \texttt{hp.x})}
 \end{axis}
 \end{tikzpicture}
 \end{center}
@@ -543,7 +543,7 @@ divergence, obtainable now from a single ground state, is the result.
 
 \subsection{The inter-site table, from that same single run}
 
-Once V3 put the +V branch on \C{ldaU}, it could be pointed at the same stock
+Once V3 put the +V branch on \C{ldaU}, it could be pointed at the same official
 ground state. The on-site $U$ comes back at \textbf{10.5455} and
 \textbf{4.2717} --- identical to the +U-only branch to all six figures, from a
 different kernel. That is correct rather than coincidental: the on-site ratio
@@ -692,7 +692,7 @@ prints, which is what makes every comparison in this report a plain \C{diff}.
 
 \smallskip
 \noindent
-\textbf{Both branches now read stock QE's \C{ldaU}}, so both want an
+\textbf{Both branches now read official QE's \C{ldaU}}, so both want an
 ortho-atomic \C{HUBBARD} card with one channel per type, and both run on
 \emph{any} such ground state --- including the very one DFPT consumes. Neither
 needs \C{lacbn0} any more.

@@ -7,7 +7,7 @@
 0. STARTING POINT
    The transplant itself was finished in the previous session (see
    /home/yjkang/projects/qe_aCBN0-7.3/logs/260901-eacbn0-hpx.txt, 1027 lines).
-   Deliverable: HP/src/eACBN0.f90, +U and +V both on stock QE ldaU bookkeeping,
+   Deliverable: HP/src/eACBN0.f90, +U and +V both on official QE ldaU bookkeeping,
    regression 7 passed / 0 failed.  This session is documentation only --- no
    Fortran was changed, no QE jobs were submitted.
 
@@ -90,7 +90,7 @@
    MnO   example/MnO.acbn0.out vs MnO_ref_v3/hp.out :
          28 blocks, 168/168 lines, empty diff.
          MnA 5.2344  MnB 5.2344  O 3.4161  Mn-O 2.9031 / 2.9042
-   NiO   V3b, one-shot on the stock DFPT ground state (NiO_dual_v):
+   NiO   V3b, one-shot on the official DFPT ground state (NiO_dual_v):
          Ni 10.5455 (occ 8.4628), O 4.2717 (occ 5.1125)
          V(Ni-O)  3.1859 @ 2.0603 A
          V(Ni-Ni) 1.4359/1.4357 @ 2.9020 A ; 1.4242/1.4244 @ 2.9254 A
@@ -142,7 +142,7 @@
 ================================================================================
 
 7. WHAT V4 IS
-   S3/V3 moved both branches onto stock ldaU, at the price of ONE Hubbard
+   S3/V3 moved both branches onto official ldaU, at the price of ONE Hubbard
    channel per atomic type: ehub_l(m,nt) was collapsed to Hubbard_l(nt)+1 and
    multi-channel types were refused.  V4 removes that restriction.
 
@@ -201,11 +201,11 @@
    reliable way to get them out.)
 
 10. ALSO RELAXED
-   HP/src/hp_readin.f90:174 -- stock hp.x refuses is_hubbard_back outright
+   HP/src/hp_readin.f90:174 -- official hp.x refuses is_hubbard_back outright
    ("Two (or more) Hubbard channels per atomic type is not implemented").
    That is a DFPT limitation, not an ACBN0 one; now guarded by acbn0 == 0.
-   Backup: hp_readin.f90.v3bak.  This is the 4th stock guard relaxed, after
-   the HUBBARD-card, tetrahedra and lda_plus_u_kind ones.
+   Backup: hp_readin.f90.v3bak.  This is the 4th official-hp.x guard relaxed,
+   after the HUBBARD-card, tetrahedra and lda_plus_u_kind ones.
 
 11. STATIC FAITHFULNESS, RE-MEASURED (scratchpad/normdiff4.py)
    Now a STRICTLY STRONGER test than V3's: the canonicaliser no longer

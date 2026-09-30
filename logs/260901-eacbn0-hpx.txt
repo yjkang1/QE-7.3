@@ -37,9 +37,9 @@ FACTS ESTABLISHED (read from source; file:line are exact)
      Hubbard_l(nt)+1<-> ehub_l(m,nt)  copy_U_wfc <-> copy_v_wfc
    For a one-channel-per-type system (NiO) these are the same arrays.
    DIVERGENCE TO WATCH IN S3:
-     offset_atom_wfc   (stock) requires occupation  > 0  and matches by LABEL
-     offset_atom_wfc_v (fork)  requires occupation >= 0  and matches by
-                               "highest first char of PP_CHI label with this l"
+     offset_atom_wfc   (official) requires occupation  > 0  and matches by LABEL
+     offset_atom_wfc_v (fork)     requires occupation >= 0  and matches by
+                                  "highest first char of PP_CHI label with this l"
    Same answer for Ni.upf (3S,3P,3D,4S -> 3D) and O.upf (2S,2P -> 2P), but a PP
    with an occ=0 channel would shift the offsets between the two schemes.
 
@@ -101,7 +101,7 @@ STAGES
        HP/src/eACBN0.f90 (still USE ldaV), fix landmine (d), flip the CALL.
        CHECKPOINT: S2 == S1 digit for digit.
  S3  TODO - convert to ldaU bookkeeping + orthoUwfc_k.
-       CHECKPOINT: runs on the STOCK ../NiO outdir and reproduces S2.
+       CHECKPOINT: runs on the OFFICIAL ../NiO outdir and reproduces S2.
        This is the real deliverable: U_ACBN0 and U_DFPT, one ground state.
  S4  TODO - acbn0=2 (+V): port new_ns_e0_1, translate ehub_nn_vect/ehub_nnnc
        to hp.x's neighood(na)%neigh / at_sc (ldaU.f90:155-196).
@@ -137,7 +137,7 @@ RUN DIRECTORY
  /gpfs/yjkang/examples/hp/NiO_acbn0/   scf.in  hp.in  qe.sh  README.txt  psp->
    sbatch qe.sh   runs S0 then S1 and prints both U tables side by side.
 
- Existing reference (stock DFT+U + DFPT), for later comparison at S3:
+ Existing reference (official DFT+U + DFPT), for later comparison at S3:
  /gpfs/yjkang/examples/hp/NiO/NiO.Hubbard_parameters.dat
    Ni-3d  U_DFPT = 6.7427 eV     O-2p  U_DFPT = 7.3243 eV
  ACBN0 will NOT reproduce these - different estimator, not a bug.
@@ -167,7 +167,8 @@ S0  PASSED.  pw.x converged in 37 iterations, 2m26s.
     single-channel atom (ehub_u depends on m1,m2 only through their l).
     Ni1 vs Ni2 differ by 0.0008 eV; they are AFM partners and should be
     equivalent under a spin flip, so that is SCF residue, not physics.
-    For reference, DFPT on the stock cell gave Ni-3d 6.7427, O-2p 7.3243.
+    For reference, DFPT on the official ../NiO ground state gave Ni-3d 6.7427,
+    O-2p 7.3243.
     Different estimator - ACBN0 puts Ni higher and O much lower.
 
 S1  FAILED.  davcio error #10, "unit is not opened", on all ranks.
@@ -180,7 +181,7 @@ S1  FAILED.  davcio error #10, "unit is not opened", on all ranks.
         IF (io_level /= 0) CALL close_buffer(iunwfc,'KEEP')   [:62]
     'KEEP' preserves the FILES, but close_buffer also calls buiol_close_unit,
     which DEREGISTERS the unit.  get_buffer then finds no buffer entry, falls
-    to its ELSE branch, and calls davcio on a closed unit.  Stock hp.x never
+    to its ELSE branch, and calls davcio on a closed unit.  Official hp.x never
     trips this: it reads wavefunctions through iuwfc (units_lr), opened later
     in hp_openfil_q.  new_ns_a0 reads iunwfc.
     FIX: reopen iunwfc in hp_acbn0 with read_file's own three lines, and
@@ -239,7 +240,7 @@ TYPE occmat_4 and pass it across.  Legal only because an external subroutine
 has no explicit interface.  A MODULE turns it into a hard type error.
 
 STATIC VERIFICATION (done before the job ran; this is how a failure would be
-debugged anyway).  Extract our copy, undo the renames, diff vs upstream:
+debugged anyway).  Extract our copy, undo the renames, diff vs stock:
     hp_acbn0_ns_a0   <- new_ns_v.f90:233-633     BYTE-IDENTICAL
     hp_acbn0_symm_n4 <- new_ns_v.f90:2964-3165   identical + the 1 bugfix
     hp_acbn0_orberi  <- new_ns_v.f90:3780-3818   BYTE-IDENTICAL
@@ -326,7 +327,7 @@ lines); make.depend drops ../../PW/src/ldaV.o.  Built clean 01:19.
        Isolates the translation from the data provenance.
 
   S3b  job 490983   NiO_dual/run_s3b.sh          <-- THE POINT
-       ACBN0 on the STOCK ../NiO ground state: no lacbn0, no <ehub> block,
+       ACBN0 on the OFFICIAL ../NiO ground state: no lacbn0, no <ehub> block,
        just an ortho-atomic DFT+U ground state - the same one that produced
        ../NiO/NiO.Hubbard_parameters.dat by DFPT.
        NiO_dual/outdir is 131 symlinks into ../NiO/outdir (16 GB, do not
@@ -348,11 +349,11 @@ RESULTS - both COMPLETED in 12 s.
        The ldaV -> ldaU translation is exact.
 
   S3b  job 490983   PASS - and this is the deliverable.
-       ACBN0 run on the STOCK ../NiO ground state.  No lacbn0, no <ehub> block
+       ACBN0 run on the OFFICIAL ../NiO ground state.  No lacbn0, no <ehub> block
        in the XML, patched pw.x not involved at all.  Both estimators now come
        from ONE ground state:
 
-           atom          ACBN0 (this work)     DFPT (stock hp.x)
+           atom          ACBN0 (this work)     DFPT (official hp.x)
            Ni1 3d            10.5455                6.7427
            Ni2 3d            10.5455                6.7427
            O   2p             4.2717                7.3243     [eV]
@@ -429,7 +430,7 @@ over, and neither is our doing:
          (p%O(m3,m1,1,na)*p%O(m4,m2,2,na) + p%O(m3,m1,2,na)*p%O(m4,m2,1,na))
      With nspin = 1 that reads slot 2 of a 1-slot array.  The
      IF (nspin==1) n%O = 0.5*n%O guard at new_ns_v.f90:452 halves the array
-     but never widens it.  Upstream bug.
+     but never widens it.  Stock (Lee-Son) bug.
   => the nspin /= 2 rejection in hp_acbn0_check is load-bearing.
 
 GaAs MANIFOLD: ONE CHANNEL PER TYPE.  The textbook eACBN0 GaAs uses Ga 4s AND
@@ -448,13 +449,13 @@ MnO: AFM rocksalt, same shape as NiO.  nspin = 2, no special handling.
 First attempt (job 491640) CRASHED:
     Error in routine read_scf (1): Reading occupation matrices ns
 Cause: with lda_plus_v set, read_scf calls read_ehub_ns UNCONDITIONALLY
-(io_rho_xml.f90:644) and needs occupation_uv.txt in prefix.save.  The stock
+(io_rho_xml.f90:644) and needs occupation_uv.txt in prefix.save.  The official
 ../NiO save has only the ldaU occup.txt.  Not a bug in our code - a
 precondition of startingpot='file' under lda_plus_v.
 
 Fix: two steps in one job (NiO_ref1shot/qe.sh, job 491702, 50 s).
   step 1  lda_plus_v=.true., lacbn0=.false.  -> ehub_u = ehub_v = 0, so the
-          Hamiltonian is bit-identical to stock ../NiO.  Converges, writes
+          Hamiltonian is bit-identical to official ../NiO.  Converges, writes
           occupation_uv.txt.
   step 2  lacbn0=.true., ehub_mixing=1.0, electron_maxstep=1,
           startingpot/startingwfc='file'  -> ONE ACBN0 evaluation on step 1's
@@ -462,7 +463,7 @@ Fix: two steps in one job (NiO_ref1shot/qe.sh, job 491702, 50 s).
 
 CONTROL (this is what makes the comparison apples-to-apples):
     step1  total energy = -737.16322501 Ry
-    stock ../NiO        = -737.16322501 Ry     identical to 8 decimals
+    official ../NiO     = -737.16322501 Ry     identical to 8 decimals
 
 RESULT
                         pw.x one-shot     hp.x S3b
@@ -477,8 +478,8 @@ opposite sides of the rounding boundary, and/or pool-summation order.  Ni
 agrees to all six printed figures.
 
 => the +U chain is now validated end to end against pw.x on BOTH ground states:
-       S0/S1/S2/S3a   ACBN0-converged state   9.2501 / 9.2509 / 4.2471
-       S3b            stock bare-DFT state   10.5455 / 10.5455 / 4.2718
+       S0/S1/S2/S3a   ACBN0-converged state      9.2501 / 9.2509 / 4.2471
+       S3b            official bare-DFT state   10.5455 / 10.5455 / 4.2718
 
 REGRESSION (job 491691): after renaming hp_acbn0 -> hp_acbn0_u and adding the
 dispatcher, acbn0=1 on NiO_dual is byte-identical to S3b.  Refactor is inert.
@@ -763,9 +764,9 @@ convergence-path noise, not part of the Hubbard tables.
   S1  hp.x + libpw new_ns_a0                          identical
   S2  hp.x + our hp_acbn0_ns_a0                       byte-identical
   S3a hp.x, ldaV -> ldaU                              identical
-  S3b hp.x on the STOCK bare-DFT state               10.5455 / 10.5455 / 4.2717
+  S3b hp.x on the OFFICIAL bare-DFT state            10.5455 / 10.5455 / 4.2717
       vs pw.x one-shot on the same state             10.5455 / 10.5455 / 4.2718
-      control: step1 E_tot = stock E_tot = -737.16322501 Ry
+      control: step1 E_tot = official E_tot = -737.16322501 Ry
 
 +V branch (acbn0 = 2, ldaV bookkeeping, own kernel)
   V0  pw.x acbn0_type=2, NiO, nn=3.0 A                7.7065 / 2.6538 + V
@@ -832,7 +833,7 @@ SUBROUTINES IN eACBN0.f90
   subroutine has no explicit interface; a MODULE turns it into a type error.
 
 NEXT SESSION - V3
-  Goal: run the +V branch on a ground state made by STOCK QE's DFT+U+V
+  Goal: run the +V branch on a ground state made by OFFICIAL QE's DFT+U+V
   (HUBBARD card with V entries), not requiring the fork's lacbn0.
   Data source confirmed: alloc_neighborhood() (PW/src/intersite_V.f90:10) is
   called from init_hubbard at ldaU.f90:378, which hp.x DOES run.
@@ -858,7 +859,7 @@ passed against SOME build; this proves they all pass against the same one.
 
   acbn0 = 1  (ldaU branch, our kernel)
       PASS  NiO_acbn0        9.2501 / 9.2509 / 4.2471
-      PASS  NiO_dual        10.5455 / 10.5455 / 4.2717   (stock ground state)
+      PASS  NiO_dual        10.5455 / 10.5455 / 4.2717   (official ground state)
   acbn0 = 2  (ldaV branch, our kernel)
       PASS  NiO_acbn0_v      7.7065 / 2.6538 + V
       PASS  NiO_type2_nn0    9.2501  (cross-kernel, nn=0)
@@ -878,7 +879,7 @@ DESIGN.  The whole ldaV dependency of the +V kernels turned out to reduce to
 ONE table.  hubbard_nns() (PW/src/hubbard_nns.f90:2) is pure geometry - it
 builds ehub_nn_vect/_leng/_dim from tau, at, alat and a cutoff, touching no
 bookkeeping of either flavour - and hubbard_symmetry / hubbard_get_nnc read
-only that table plus stock symm_base.  So V3:
+only that table plus official symm_base.  So V3:
 
     MODULE hp_acbn0_nn   (new, inside eACBN0.f90)
         nn_csize, nn_vect, nn_leng, nn_dim, nnnc, nn_distance
@@ -893,7 +894,7 @@ only that table plus stock symm_base.  So V3:
 
 WHY A CUTOFF AND NOT ldaU's neighood/at_sc.  Lee & Son define the inter-site
 set by a cutoff d_IJ; the fork implements exactly that.  ldaU's neighood/at_sc
-is not an alternative definition - it is how stock QE stores a pair list the
+is not an alternative definition - it is how official QE stores a pair list the
 user typed into the HUBBARD card, with nb a SUPERCELL index that is painful to
 write by hand.  Taking the cutoff directly is closer to the method and gives
 hp.x something pw.x cannot do: sweep d_IJ without re-running pw.x.
@@ -910,7 +911,7 @@ symmetrize_n4 is no longer duplicated - V2 needed a ldaV copy because the S3
 one had been converted; after V3 they are the same routine.
 
 --------------------------------------------------------------------------------
- BUG 4 (upstream, latent) - hubbard_get_nnc returns nnc UNDEFINED
+ BUG 4 (stock, latent) - hubbard_get_nnc returns nnc UNDEFINED
 --------------------------------------------------------------------------------
 
 PW/src/hubbard_nns.f90:241.  nnc is assigned only inside
@@ -935,7 +936,7 @@ neighbour set contributes nothing to the symmetrised occupation matrix.
 
 WHY IT NEVER FIRED BEFORE.  It is reachable in the fork too.  It did not fire
 on the NiO_acbn0_v ground state (V0/V1/V2 all clean, and V3a is clean) but does
-on the stock ../NiO one, with an identical neighbour table, identical symmetry
+on the official ../NiO one, with an identical neighbour table, identical symmetry
 (12 ops) and identical manifold.  So it depends on which rotated images the
 symmetrisation actually visits.  Reading uninitialised stack in an optimized
 build is silent when the garbage happens to land in a mapped page - which is
@@ -953,7 +954,7 @@ pw.x-format table, which broke the diff-based checkpoints.
                     taken via the XML fallback.
                     PASS - 456 lines IDENTICAL to V2.
 
-  V3b  job 497656   NiO_dual_v: the STOCK ../NiO ground state.  No lda_plus_v,
+  V3b  job 497656   NiO_dual_v: the OFFICIAL ../NiO ground state.  No lda_plus_v,
                     no lacbn0, no <ehub> block.  nn_distance = 3.0 from
                     &INPUTHP.  The +V analogue of S3b.
 
@@ -975,7 +976,7 @@ pw.x-format table, which broke the diff-based checkpoints.
 TRADE-OFF INTRODUCED BY V3.  The +V branch now requires ldaU, i.e. a HUBBARD
 card.  Neither authors' reference input has one - they declare the manifold
 through ehub_l_choice instead.  So MnO_ref and GaAs_smoke as written no longer
-run under acbn0 = 2.  Being checked now (job 497657) by adding a stock HUBBARD
+run under acbn0 = 2.  Being checked now (job 497657) by adding an official HUBBARD
 card declaring the SAME manifold with U = 0.0001 eV, exactly as ../NiO does.
 
 ################################################################################
@@ -983,7 +984,7 @@ card declaring the SAME manifold with U = 0.0001 eV, exactly as ../NiO does.
 ################################################################################
 
 MnO under V3 (job 497657, MnO_ref_v3/): stepB.in = the supervisor's input plus
-a stock HUBBARD (ortho-atomic) card declaring the SAME manifold
+an official HUBBARD (ortho-atomic) card declaring the SAME manifold
 (MnA-3d, MnB-3d, O-2p) at U = 0.0001 eV - numerically nothing, exactly as
 ../NiO and ../NiO_acbn0 do.
 

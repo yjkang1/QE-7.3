@@ -76,21 +76,21 @@ changes two things at once.
 | **S1** | ***eACBN0.f90*** | libpw `new_ns_a0` | ldaV | same | identical |
 | **S2** | eACBN0.f90 | ***our `hp_acbn0_ns_a0`*** | ldaV | same | byte-identical |
 | **S3a** | eACBN0.f90 | our kernel | ***ldaU*** | same | identical |
-| **S3b** | eACBN0.f90 | our kernel | ldaU | ***stock bare-DFT*** | 10.5455 / 4.2717 |
+| **S3b** | eACBN0.f90 | our kernel | ldaU | ***official bare-DFT*** | 10.5455 / 4.2717 |
 | **V0** | pw.x `sum_band` | libpw `new_ns_e0_1` | ldaV | eACBN0-converged | 7.7065 / 2.6538 + V |
 | **V1** | ***eACBN0.f90*** | libpw `new_ns_e0_1` | ldaV | same | identical, 456 lines |
 | **V2** | eACBN0.f90 | ***our `hp_acbn0_ns_e0_1`*** | ldaV | same | identical, 456 lines |
 | **V3a** | eACBN0.f90 | our kernel | ***ldaU*** | same | identical, 456 lines |
-| **V3b** | eACBN0.f90 | our kernel | ldaU | ***stock bare-DFT*** | 10.5455 / 4.2717 + V |
+| **V3b** | eACBN0.f90 | our kernel | ldaU | ***official bare-DFT*** | 10.5455 / 4.2717 + V |
 
 *Italic* = the one thing that changed on that rung.
 
 **S3b's direct reference.** S3b changes the input data, not the code, so its
 number legitimately moves and needed its own pw.x check. Blocked at first:
 with `lda_plus_v` set, `read_scf` reads `occupation_uv.txt` unconditionally
-(`io_rho_xml.f90:644`) and the stock save has only the ldaU `occup.txt`.
+(`io_rho_xml.f90:644`) and the official save has only the ldaU `occup.txt`.
 Solved in two steps — step 1 with `lacbn0 = .false.` (so `ehub_u = ehub_v = 0`
-and the Hamiltonian is the stock one) writes the file; step 2 does one ACBN0
+and the Hamiltonian is the official one) writes the file; step 2 does one ACBN0
 evaluation on it.
 
 ```
@@ -100,7 +100,7 @@ evaluation on it.
     O   2p                4.2718         4.2717    last printed digit
     Tr[ns] atom 1         8.46278        8.4628    exact
 
-    control: step1 E_tot = stock ../NiO E_tot = -737.16322501 Ry
+    control: step1 E_tot = official ../NiO E_tot = -737.16322501 Ry
 ```
 
 ### Static faithfulness of the transplant
@@ -154,7 +154,7 @@ Not hypothetical: `example/GaAs.acbn0.in_noncollienar` sets
 `read_file` buffers wavefunctions to `iunwfc` then closes it with
 `close_buffer(..., 'KEEP')` (`read_file_new.f90:62`). `'KEEP'` preserves the
 *files*, but the call also deregisters the unit, so `get_buffer` falls through
-to `davcio` on a closed unit. Stock `hp.x` never trips this because DFPT reads
+to `davcio` on a closed unit. Official `hp.x` never trips this because DFPT reads
 through `iuwfc`, opened later in `hp_openfil_q`.
 
 ### Bug 3 — `hubbard_get_nnc` returns an undefined index
@@ -165,7 +165,7 @@ falls through untouched. `hubbard_symmetry` asks for the index of a *rotated*
 cell — not guaranteed to be one of the occupied ones — and `symmetrize_n5`
 then indexes `n(nnc)` with whatever was on the stack.
 
-Never fires on the fork's own NiO ground state; fires on the stock one, with
+Never fires on the fork's own NiO ground state; fires on the official one, with
 an identical neighbour table, identical symmetry (12 ops) and identical
 manifold. In an optimised build a garbage index is silent whenever it lands in
 a mapped page. The optimised build gave only a UCX backtrace; a rebuild with
@@ -204,10 +204,10 @@ ground state legitimately has none.
 
 ## 4. What the two estimators say
 
-Both from the *same* NiO ground state (stock `../NiO`, U ≈ 0, ortho-atomic,
+Both from the *same* NiO ground state (official `../NiO`, U ≈ 0, ortho-atomic,
 identical manifold):
 
-| | ACBN0 (this work) | DFPT (stock hp.x) |
+| | ACBN0 (this work) | DFPT (official hp.x) |
 |---|---:|---:|
 | Ni 3d | **10.5455** | 6.7427 |
 | O 2p | **4.2717** | 7.3243 |
@@ -283,7 +283,7 @@ Ga on-site [1,1,4,4] cell [0 0 0]
 same `V[atom i, atom j, ...]` tables `pw.x` prints, which is what makes every
 comparison here a plain `diff`.
 
-**Both branches now read stock QE's `ldaU`**, so both need an ortho-atomic
+**Both branches now read official QE's `ldaU`**, so both need an ortho-atomic
 `HUBBARD` card and one channel per type, and both run on **any** such ground
 state — including the one DFPT consumes. Neither needs `lacbn0` any more.
 
