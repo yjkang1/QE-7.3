@@ -62,7 +62,7 @@ MODULE ldaU_hp
              nath_pert,       &             ! Number of actual perturbed Hubbard atoms in the primitive cell
              find_atpert,     &             ! Method of searching for atoms to be perturbed
              acbn0,           &             ! Selects the (e)ACBN0 estimator instead of DFPT:
-                                            !   0 = DFPT only (default, stock hp.x)
+                                            !   0 = DFPT only (default, official hp.x)
                                             !   1 = on-site U       (ACBN0)
                                             !   2 = on-site U + V   (eACBN0)
                                             ! When > 0, hp.x computes the Hubbard
@@ -108,7 +108,7 @@ MODULE ldaU_hp
                                              ! valence (highest-n) PP_CHI channel is taken,
                                              ! as ldaV does; channels are ordered as in the
                                              ! pseudopotential, again as ldaV does.  Up to
-                                             ! three channels per type (stock QE's main +
+                                             ! three channels per type (official QE's main +
                                              ! two background blocks).  hp.x declares the
                                              ! manifold from this and calls init_hubbard;
                                              ! the pw.x ground state must carry no HUBBARD

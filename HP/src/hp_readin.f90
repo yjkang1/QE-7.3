@@ -126,7 +126,7 @@ SUBROUTINE hp_readin()
   !
   ! ACBN0 only: if the pw.x run carried no HUBBARD card, MODULE ldaU is empty
   ! and the transplanted kernels have no manifold to project onto.  With
-  ! acbn0 > 0 the manifold is declared here from acbn0_l_choice and stock
+  ! acbn0 > 0 the manifold is declared here from acbn0_l_choice and official
   ! QE's own init_hubbard builds everything from it.  See the routine below.
   !
   CALL acbn0_manifold_setup()
@@ -157,7 +157,7 @@ SUBROUTINE acbn0_manifold_setup()
   !---------------------------------------------------------------------
   !
   ! Declare the Hubbard manifold from acbn0_l_choice in &INPUTHP and let
-  ! stock QE build everything else from it.
+  ! official QE build everything else from it.
   !
   ! WHY THIS EXISTS.  The transplanted ACBN0 kernels read the manifold out of
   ! MODULE ldaU (as lm / lch / ofs, see MODULE hp_acbn0_man).  ldaU is filled
@@ -177,7 +177,7 @@ SUBROUTINE acbn0_manifold_setup()
   ! printed U and V matrices, so it must match ldaV for the two codes to be
   ! compared block by block.
   !
-  ! The first selected channel becomes stock QE's main manifold (Hubbard_l),
+  ! The first selected channel becomes official QE's main manifold (Hubbard_l),
   ! the second its background (Hubbard_l2), the third Hubbard_l3 with backall.
   ! That is storage only: MODULE hp_acbn0_man rebuilds the single contiguous
   ! manifold ldaV uses.
@@ -185,7 +185,7 @@ SUBROUTINE acbn0_manifold_setup()
   ! WHAT IT DOES NOT DO.  It does not reimplement init_hubbard.  It sets the
   ! handful of module variables init_hubbard reads, then CALLS it, so ldim_u,
   ! ldmx_tot, ll, Hubbard_lmax, hubbard_occ, offsetU, offsetU_back(1) and
-  ! nwfcU are built by stock QE exactly as they would have been.
+  ! nwfcU are built by official QE exactly as they would have been.
   !
   ! The projectors are unaffected by any of this: orthoUwfc builds
   ! O^-1/2 S phi from the pseudo-atomic orbitals in the .upf, which lives in
@@ -231,7 +231,7 @@ SUBROUTINE acbn0_manifold_setup()
   ! state must be a plain (non-Hubbard) SCF.  The former alternative - a
   ! HUBBARD card with a placeholder U in the pw.x input, manifold read back
   ! from the XML - is no longer accepted: it made pw.x apply a Hubbard
-  ! potential during the SCF, split a second channel into stock QE's
+  ! potential during the SCF, split a second channel into official QE's
   ! background bookkeeping, and tripped the ortho-atomic force guard in
   ! dprojdtau_k whenever tprnfor was set.
   !
@@ -303,7 +303,7 @@ SUBROUTINE acbn0_manifold_setup()
      ENDDO
      !
      ! Walk the pseudopotential in file order and hand the selected channels to
-     ! stock QE in that order: main, then background, then background-1.
+     ! official QE in that order: main, then background, then background-1.
      !
      nsel = 0
      DO nw = 1, upf(nt)%nwfc
@@ -338,7 +338,7 @@ SUBROUTINE acbn0_manifold_setup()
   lda_plus_u_kind    = 0
   lda_plus_u         = .TRUE.
   !
-  ! Stock QE builds the rest: ldim_u, ldmx_tot, ll, hubbard_occ, offsetU,
+  ! Official QE builds the rest: ldim_u, ldmx_tot, ll, hubbard_occ, offsetU,
   ! offsetU_back(1) and nwfcU (PW/src/ldaU.f90:202-527).
   !
   CALL init_hubbard( upf(1:ntyp)%psd, nspin, noncolin )

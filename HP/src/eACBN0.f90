@@ -11,7 +11,7 @@
 !
 !  Driven by the input tag  acbn0  of &INPUTHP:
 !
-!     acbn0 = 0 (default)    DFPT linear response  -> stock hp.x, untouched
+!     acbn0 = 0 (default)    DFPT linear response  -> official hp.x, untouched
 !     acbn0 = 1              on-site U             -> ACBN0
 !     acbn0 = 2              on-site U + V         -> eACBN0        (stage S4)
 !
@@ -29,7 +29,7 @@
 !  the XML.  That made the S0/S1/S2 comparison exact, but it also meant hp.x
 !  could only do ACBN0 on a ground state produced by the patched pw.x.
 !
-!  S3 moves the bookkeeping to MODULE ldaU - stock QE's own - so ACBN0 runs on
+!  S3 moves the bookkeeping to MODULE ldaU - official QE's own - so ACBN0 runs on
 !  ANY ortho-atomic DFT+U ground state, including the very one the DFPT branch
 !  of hp.x uses.  Nothing about the physics changes; only where the indices
 !  come from.
@@ -82,7 +82,7 @@
 !    - reopening iunwfc.  read_file closes it at read_file_new.f90:62 with
 !      close_buffer(...,'KEEP'); 'KEEP' preserves the FILES but the call also
 !      deregisters the unit, so get_buffer falls through to davcio on a closed
-!      unit (Bug 1 of the S1 run).  Stock hp.x never trips this because it
+!      unit (Bug 1 of the S1 run).  Official hp.x never trips this because it
 !      reads wavefunctions through iuwfc (units_lr), opened in hp_openfil_q.
 !
 !  Unit note: hp.x also uses iunhub, in hp_openfil_q.f90:76 and
@@ -109,7 +109,7 @@ MODULE hp_acbn0_nn
   !     ehub_nn_dim         nn_dim        largest |n| actually used, per axis
   !     ehub_nnnc           nnnc          number of distinct occupied cells
   !
-  ! The manifold and the projectors come from stock QE's MODULE ldaU
+  ! The manifold and the projectors come from official QE's MODULE ldaU
   ! (Hubbard_l, Hubbard_lmax, offsetU, wfcU, nwfcU), exactly as the +U branch
   ! has done since S3.  So the +V kernels no longer touch ldaV at all, and
   ! acbn0 = 2 runs on an ordinary DFT+U ground state.
@@ -118,7 +118,7 @@ MODULE hp_acbn0_nn
   ! inter-site set by a cutoff distance d_IJ (PRR 2, 043410 (2020)); the fork
   ! implements exactly that, in hubbard_nns(), from tau/at/alat alone - no
   ! bookkeeping of either flavour is involved.  ldaU's neighood/at_sc is not
-  ! an alternative definition, it is how stock QE stores a pair list the user
+  ! an alternative definition, it is how official QE stores a pair list the user
   ! typed into the HUBBARD card.  Taking the cutoff directly is therefore both
   ! closer to the method and more useful: hp.x can now sweep d_IJ without
   ! re-running pw.x, which the fork cannot do.
@@ -501,7 +501,7 @@ MODULE hp_acbn0_man
   ! the projectors laid out contiguously in wfcv from ofstv(na).  Every
   ! kernel in PW/src/new_ns_v.f90 is written against that shape.
   !
-  ! Stock ldaU holds the same information split across up to three pieces -
+  ! Official ldaU holds the same information split across up to three pieces -
   ! the first manifold at offsetU(na), background ones at offsetU_back(na)
   ! and offsetU_back1(na).  Crucially it ALREADY labels them the way the
   ! kernels want:
@@ -979,7 +979,7 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
   WRITE( iunit, '(/2x,79("="),/)')
   WRITE( iunit, '(2x,"prefix     : ",a)') TRIM(prefix)
   WRITE( iunit, '(2x,"projectors : ortho-atomic")')
-  WRITE( iunit, '(2x,"bookkeeping: MODULE ldaU (stock QE)")')
+  WRITE( iunit, '(2x,"bookkeeping: MODULE ldaU (official QE)")')
   WRITE( iunit, '(2x,"mixing     : 1.000  (one-shot; no SCF history)")')
   WRITE( iunit, '(2x,"estimator  : pseudo-hybrid ACBN0 ratio, NOT linear response")')
   !
@@ -1751,7 +1751,7 @@ END SUBROUTINE hp_acbn0_orberi
 !    acbn0 = 1   on-site U        -> hp_acbn0_u   (S3)
 !    acbn0 = 2   on-site U + V    -> hp_acbn0_v   (V3)
 !
-!  Both branches now read the manifold and the projectors from stock QE's
+!  Both branches now read the manifold and the projectors from official QE's
 !  MODULE ldaU, so both run on an ordinary ortho-atomic DFT+U ground state.
 !  They remain separate because the occupation matrix has a different rank:
 !  ns(m1,m2,spin,na) on-site versus ns(m1,m2,spin,na1,na2,nnc) inter-site.
@@ -1783,7 +1783,7 @@ SUBROUTINE hp_acbn0_v()
   !
   ! STAGE V3 - on-site U AND inter-site V, on ldaU bookkeeping.
   !
-  ! The manifold and the projectors come from stock QE's MODULE ldaU exactly
+  ! The manifold and the projectors come from official QE's MODULE ldaU exactly
   ! as the +U branch has since S3; the neighbour table is built here, by
   ! MODULE hp_acbn0_nn, from geometry and a cutoff.  MODULE ldaV is no longer
   ! read by any kernel.
@@ -2399,7 +2399,7 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   WRITE( iunit, '(/2x,79("="),/)')
   WRITE( iunit, '(2x,"prefix     : ",a)') TRIM(prefix)
   WRITE( iunit, '(2x,"projectors : ortho-atomic")')
-  WRITE( iunit, '(2x,"bookkeeping: MODULE ldaU (stock QE) + own neighbour table")')
+  WRITE( iunit, '(2x,"bookkeeping: MODULE ldaU (official QE) + own neighbour table")')
   WRITE( iunit, '(2x,"mixing     : 1.000  (one-shot; no SCF history)")')
   WRITE( iunit, '(2x,"neighbours : cutoff d_IJ = ",f6.3," A,  nnnc = ",i4)') &
         nn_distance, nnnc
