@@ -445,7 +445,7 @@ CONTAINS
 
       ics = nn_csize + 1
       !
-      ! BUGFIX vs PW/src/hubbard_nns.f90:241.  Upstream leaves nnc UNDEFINED
+      ! BUGFIX vs stock PW/src/hubbard_nns.f90:241.  Stock leaves nnc UNDEFINED
       ! whenever the requested cell carries no neighbour pair: the enumeration
       ! below only assigns inside "IF (MAXVAL(nn_vect(...)) == 1)", so an empty
       ! cell falls through untouched.  hubbard_symmetry asks for the index of a
