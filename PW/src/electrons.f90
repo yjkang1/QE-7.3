@@ -449,7 +449,7 @@ SUBROUTINE electrons_scf ( printout, exxen )
   ! by LSH
   USE ldaV,                 ONLY : ehubene, ehubene_old, dehubene, &
                                    lda_plus_v, lacbn0, acbn0_type, &
-                                   pot_fix, write_ehub_uv
+                                   pot_fix, write_ehub_uv, ehub_scf_iter, ehub_dat_iter
   ! by LSH
   USE extfield,             ONLY : tefield, etotefield, gate, etotgatefield !TB
   USE noncollin_module,     ONLY : noncolin, magtot_nc, i_cons,  bfield, &
@@ -567,6 +567,7 @@ SUBROUTINE electrons_scf ( printout, exxen )
   !
   iter = 0
   dr2  = 0.0_dp
+  ehub_dat_iter = -1   ! [hubdat] pass count restarts with every electrons_scf call
   IF ( restart ) CALL restart_in_electrons( iter, dr2, ethr, et )
   IF ( restart ) CALL using_et(2)
   !
@@ -637,6 +638,7 @@ SUBROUTINE electrons_scf ( printout, exxen )
      ENDIF
      iter = iter + 1
      IF(scissor) sci_iter = iter
+     ehub_scf_iter = iter   ! [hubdat] label of the eACBN0_hub_stock_*.dat blocks
      !
      IF (use_gpu .and. (iverbosity >= 1) ) CALL dev_buf%print_report(stdout)
      IF (use_gpu .and. (iverbosity >= 1) ) CALL pin_buf%print_report(stdout)
@@ -1391,6 +1393,7 @@ SUBROUTINE electrons_scf ( printout, exxen )
   WRITE( stdout, 9120 ) iter
   !
 10  FLUSH( stdout )
+  ehub_scf_iter = 0    ! [hubdat] kernel calls after the SCF loop write no block
   !
   ! ... exiting: unless disabled by user (disk_io='minimal' or 'none'),
   ! ... write charge density (also ldaU ns coefficients and PAW becsum) 

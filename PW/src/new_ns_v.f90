@@ -240,7 +240,7 @@ SUBROUTINE new_ns_a0(ns)
   USE ldaV,                 ONLY : ehub_lm_max, ehub_lm, ehub_l, &
                                    ehub_mixing, ehub_u, wfcv,    &
                                    nwfcv, ofstv, remove_ehub_u,  &
-                                   write_ehub_uv, ehub_u_raw
+                                   write_ehub_uv, ehub_u_raw, write_ehub_dat_u
   USE lsda_mod,             ONLY : lsda, current_spin, nspin, isk
   USE wvfct,                ONLY : nbnd, wg
   USE io_global,            ONLY : stdout
@@ -634,6 +634,7 @@ SUBROUTINE new_ns_a0(ns)
   DEALLOCATE ( HF%U, HF%J )
 
   CALL write_ehub_uv
+  CALL write_ehub_dat_u( ns )   ! [hubdat]
 
   CALL stop_clock('new_ns_a0')
 
@@ -653,7 +654,8 @@ SUBROUTINE new_ns_e0_1(ns)
                                    ehub_nn_vect, ehub_nn_leng, ehub_nn_dim,           &
                                    ehub_csize, ehub_nnnc, ehub_mixing, ehub_conv_thr, &
                                    ehub_v, ehub_v_diff, remove_ehub_u, write_ehub_uv, &
-                                   wfcv, nwfcv, ofstv, stop_acbn0, ehub_v_raw
+                                   wfcv, nwfcv, ofstv, stop_acbn0, ehub_v_raw, &
+                                   write_ehub_dat_v
   USE lsda_mod,             ONLY : lsda, current_spin, nspin, isk
   USE wvfct,                ONLY : nbnd, npwx, wg
   USE io_global,            ONLY : stdout
@@ -704,6 +706,8 @@ SUBROUTINE new_ns_e0_1(ns)
 
   REAL(DP), ALLOCATABLE    :: ehub_v_(:,:,:,:)
 
+  LOGICAL                  :: uv_updated   ! [hubdat] .FALSE. if stop_acbn0 skips the update
+
   REAL(DP)                 :: arg
   REAL(DP)                 :: ntau(3,nat)
   REAL(DP)                 :: compute_eri
@@ -721,10 +725,13 @@ SUBROUTINE new_ns_e0_1(ns)
 
   CALL start_clock('new_ns_e0_#1')
 
+  uv_updated = .TRUE.   ! [hubdat]
+
   IF ( stop_acbn0 ) THEN
      !
      IF ( MAXVAL(ehub_v_diff(:,:,:,:,:)) < SQRT(ehub_conv_thr) ) THEN
         CALL new_ns_v(ns)
+        uv_updated = .FALSE.   ! [hubdat]
         GOTO 1
      ENDIF
      !
@@ -1822,6 +1829,7 @@ SUBROUTINE new_ns_e0_1(ns)
   ENDDO ! na1
 
 1 CALL write_ehub_uv
+  CALL write_ehub_dat_v( ns, uv_updated )   ! [hubdat]
 
   CALL stop_clock('new_ns_e0_#1')
 

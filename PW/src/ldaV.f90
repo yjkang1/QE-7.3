@@ -51,6 +51,14 @@ MODULE ldaV
     ehub_nn_dim(3),             &
     ehub_nnnc
 
+  ! [hubdat] labels of the per-call blocks in outdir/eACBN0_hub_stock_*.dat
+  INTEGER ::                    &
+    ehub_scf_iter = 0,          & ! current SCF iteration, set in electrons_scf
+    ehub_dat_iter = -1,         & ! SCF iteration of the last block written
+    ehub_dat_step = -1,         & ! ionic step (istep) of the last block written
+    ehub_dat_pass = 0,          & ! kernel calls so far inside that iteration
+    ehub_dat_nblk = 0             ! blocks written in this run (0 = replace files)
+
   INTEGER, ALLOCATABLE ::       &
     ofst(:), ofstv(:),          & ! offset of atomic wavfunctions used for projections
     ehub_nn_vect(:,:,:,:,:),    & ! nearest neighbor(1) or not(0)
@@ -824,5 +832,522 @@ CONTAINS
   END SUBROUTINE rawprint_v
 
   END SUBROUTINE write_ehub_uv
+
+  !-----------------------------------------------------------------------
+  ! [hubdat]  Stock (Lee-Son) counterpart of the dev hp.x file eACBN0_hub_dev.dat
+  !-----------------------------------------------------------------------
+  !
+  ! Every call of the collinear ACBN0 kernel (new_ns_a0 for acbn0_type = 1,
+  ! new_ns_e0_1 for acbn0_type = 2) appends one block to two files in outdir:
+  !
+  !   eACBN0_hub_stock_w_mixing.dat   U, V AFTER mixing (ehub_u / ehub_v),
+  !                                   i.e. the values that enter the Hamiltonian
+  !   eACBN0_hub_stock_wo_mixing.dat  one-shot U, V of the same call, no mixing
+  !                                   (ehub_u_raw / ehub_v_raw)
+  !
+  ! The block body copies hp_acbn0_write / hp_acbn0_write_v of the dev hp.x
+  ! (qe-7.3_thiswork/HP/src/eACBN0.f90), so every NUMERIC line of the last
+  ! block of the wo_mixing file matches eACBN0_hub_dev.dat written by hp.x on
+  ! the same outdir; the header and the energy prose differ on purpose.  The
+  ! energies use the loops of v_hubbard_a0 / v_hubbard_v with the U, V of the
+  ! block and the output occupations ns of the same call.  Blocks are written
+  ! only for lacbn0 runs, only from inside electrons_scf (ehub_scf_iter > 0),
+  ! and only when write_scf writes prefix.save (io_level > -2), so the last
+  ! block always matches ehub_uv.txt / ehub_uv_raw.txt.  The first block of a
+  ! run replaces the files, later blocks are appended; only ionode writes.
+  ! acbn0_type = 3 and noncollinear runs are not covered (dev hp.x scope).
+  !
+  !-----------------------------------------------------------------------
+  SUBROUTINE write_ehub_dat_u( ns )
+    !-----------------------------------------------------------------------
+    USE control_flags, ONLY : io_level
+    IMPLICIT NONE
+    REAL(DP), INTENT(IN) :: ns(:,:,:,:)      ! (ehub_lm_max,ehub_lm_max,nspin,nat)
+    LOGICAL              :: replace
+    !
+    IF ( .NOT. lacbn0 .OR. ehub_scf_iter <= 0 .OR. io_level < -1 ) RETURN
+    IF ( .NOT. ALLOCATED(ehub_u) .OR. .NOT. ALLOCATED(ehub_u_raw) ) RETURN
+    CALL ehub_dat_next( replace )
+    CALL ehub_dat_block_u( 'eACBN0_hub_stock_w_mixing.dat',  .TRUE.,  ehub_u,     ns, replace )
+    CALL ehub_dat_block_u( 'eACBN0_hub_stock_wo_mixing.dat', .FALSE., ehub_u_raw, ns, replace )
+    !
+  END SUBROUTINE write_ehub_dat_u
+  !
+  !-----------------------------------------------------------------------
+  SUBROUTINE write_ehub_dat_v( ns, updated )
+    !-----------------------------------------------------------------------
+    USE control_flags, ONLY : io_level
+    IMPLICIT NONE
+    REAL(DP), INTENT(IN) :: ns(:,:,:,:,:,:)  ! (ehub_lm_max,ehub_lm_max,nspin,nat,nat,ehub_nnnc)
+    LOGICAL,  INTENT(IN) :: updated          ! .FALSE. when stop_acbn0 skipped the update
+    LOGICAL              :: replace
+    !
+    IF ( .NOT. lacbn0 .OR. ehub_scf_iter <= 0 .OR. io_level < -1 ) RETURN
+    IF ( .NOT. ALLOCATED(ehub_v) .OR. .NOT. ALLOCATED(ehub_v_raw) ) RETURN
+    CALL ehub_dat_next( replace )
+    CALL ehub_dat_block_v( 'eACBN0_hub_stock_w_mixing.dat',  .TRUE.,  ehub_v,     ns, replace, updated )
+    CALL ehub_dat_block_v( 'eACBN0_hub_stock_wo_mixing.dat', .FALSE., ehub_v_raw, ns, replace, updated )
+    !
+  END SUBROUTINE write_ehub_dat_v
+  !
+  !-----------------------------------------------------------------------
+  SUBROUTINE ehub_dat_next( replace )
+    !-----------------------------------------------------------------------
+    ! Advance the (ionic step, SCF iteration, pass) label of the next block.
+    ! Runs on every rank so the bookkeeping never depends on ionode.
+    USE control_flags, ONLY : istep
+    IMPLICIT NONE
+    LOGICAL, INTENT(OUT) :: replace
+    !
+    replace = ( ehub_dat_nblk == 0 )
+    IF ( ehub_scf_iter == ehub_dat_iter .AND. istep == ehub_dat_step ) THEN
+       ehub_dat_pass = ehub_dat_pass + 1
+    ELSE
+       ehub_dat_pass = 1
+    ENDIF
+    ehub_dat_iter = ehub_scf_iter
+    ehub_dat_step = istep
+    ehub_dat_nblk = ehub_dat_nblk + 1
+    !
+  END SUBROUTINE ehub_dat_next
+  !
+  !-----------------------------------------------------------------------
+  SUBROUTINE ehub_dat_open( fname, replace, lmixed, updated, iunit )
+    !-----------------------------------------------------------------------
+    ! Open fname in outdir (replace on the first block of the run, append
+    ! otherwise), write the file header once, then the block separator.
+    ! iunit = -1 if the file cannot be opened: the block is skipped, pw.x runs on.
+    USE io_files,      ONLY : tmp_dir, prefix
+    USE control_flags, ONLY : lmd, lbfgs
+    IMPLICIT NONE
+    CHARACTER(LEN=*), INTENT(IN)  :: fname
+    LOGICAL,          INTENT(IN)  :: replace, lmixed, updated
+    INTEGER,          INTENT(OUT) :: iunit
+    INTEGER                       :: ios
+    INTEGER, EXTERNAL             :: find_free_unit
+    !
+    ! find_free_unit returns a positive unit, so iunit = -1 below is an
+    ! unambiguous failure flag (NEWUNIT= would return a negative unit).
+    iunit = find_free_unit()
+    IF ( replace ) THEN
+       OPEN( UNIT = iunit, FILE = TRIM(tmp_dir)//fname, FORM = 'formatted', &
+             STATUS = 'replace', IOSTAT = ios )
+    ELSE
+       OPEN( UNIT = iunit, FILE = TRIM(tmp_dir)//fname, FORM = 'formatted', &
+             STATUS = 'unknown', POSITION = 'append', IOSTAT = ios )
+    ENDIF
+    IF ( ios /= 0 ) THEN
+       CALL infomsg( 'ehub_dat_open', 'cannot open '//TRIM(tmp_dir)//fname//', block skipped' )
+       iunit = -1
+       RETURN
+    ENDIF
+    !
+    IF ( replace ) THEN
+       WRITE( iunit, '(/2x,79("="))')
+       IF ( acbn0_type == 1 ) THEN
+          WRITE( iunit, '(/25x,"Hubbard parameters from ACBN0")')
+       ELSE
+          WRITE( iunit, '(/24x,"Hubbard parameters from eACBN0")')
+       ENDIF
+       WRITE( iunit, '(/13x,"computed by pw.x, stock QE (Lee-Son)  (acbn0_type = ",i1,")")') acbn0_type
+       WRITE( iunit, '(/2x,79("="),/)')
+       WRITE( iunit, '(2x,"prefix     : ",a)') TRIM(prefix)
+       WRITE( iunit, '(2x,"projectors : ortho-atomic")')
+       WRITE( iunit, '(2x,"bookkeeping: MODULE ldaV (Lee-Son patch)")')
+       IF ( lmixed ) THEN
+          WRITE( iunit, '(2x,"mixing     : ",f5.3,"  U_n = (1-m)*U_{n-1} + m*U_raw;  U, V AFTER mixing")') &
+                ehub_mixing
+       ELSE
+          WRITE( iunit, '(2x,"mixing     : none   one-shot U_raw, V_raw;  ehub_mixing = ",f5.3," NOT applied")') &
+                ehub_mixing
+       ENDIF
+       IF ( acbn0_type == 2 ) &
+          WRITE( iunit, '(2x,"neighbours : cutoff d_IJ = ",f6.3," A,  nnnc = ",i4)') ehub_nn_distance, ehub_nnnc
+       IF ( acbn0_type == 1 ) THEN
+          WRITE( iunit, '(2x,"estimator  : pseudo-hybrid ACBN0 ratio, NOT linear response")')
+       ELSE
+          WRITE( iunit, '(2x,"estimator  : pseudo-hybrid eACBN0 ratio, NOT linear response")')
+       ENDIF
+       WRITE( iunit, '(2x,"blocks     : one per call of the ACBN0 kernel, i.e. one per SCF iteration.")')
+       WRITE( iunit, '(2x,"             A 2nd pass inside one iteration is the re-diagonalisation with")')
+       WRITE( iunit, '(2x,"             lowered ethr (iteration 1) or the ehub_pot_fix re-evaluation")')
+       WRITE( iunit, '(2x,"             after convergence.  Occupations = output ns of that call.")')
+       IF ( lmd .OR. lbfgs ) &
+          WRITE( iunit, '(2x,"             ionic step = istep of pw.x (0 = starting geometry).")')
+       IF ( lmixed ) THEN
+          WRITE( iunit, '(2x,"             The LAST block holds the values of prefix.save/ehub_uv.txt.")')
+       ELSE
+          WRITE( iunit, '(2x,"             The LAST block holds the values of prefix.save/ehub_uv_raw.txt.")')
+       ENDIF
+    ENDIF
+    !
+    WRITE( iunit, '(/2x,79("#"))')
+    IF ( lmd .OR. lbfgs .OR. ehub_dat_step > 0 ) THEN
+       WRITE( iunit, '(2x,"#  ionic step ",i4,"   SCF iteration ",i4,"   pass ",i2,"   (block ",i5,")")') &
+             ehub_dat_step, ehub_dat_iter, ehub_dat_pass, ehub_dat_nblk
+    ELSE
+       WRITE( iunit, '(2x,"#  SCF iteration ",i4,"   pass ",i2,"   (block ",i5,")")') &
+             ehub_dat_iter, ehub_dat_pass, ehub_dat_nblk
+    ENDIF
+    IF ( .NOT. updated ) &
+       WRITE( iunit, '(2x,"#  stop_acbn0: U, V NOT recomputed in this call; values repeat the last update")')
+    WRITE( iunit, '(2x,79("#"))')
+    !
+  END SUBROUTINE ehub_dat_open
+  !
+  !-----------------------------------------------------------------------
+  FUNCTION ehub_dat_chanlab( nt, c ) RESULT( lab )
+    !-----------------------------------------------------------------------
+    ! Label ('4s', '3d', ...) of channel c (= l+1) of type nt.  The principal
+    ! quantum number is the first character of the PP_CHI label of the
+    ! wavefunction init_lda_plus_v selected for that l (collinear case:
+    ! ehub_l_choice(nt,nw) = 1 marks the selected wavefunction nw).
+    IMPLICIT NONE
+    INTEGER, INTENT(IN)         :: nt, c
+    CHARACTER(LEN=2)            :: lab
+    CHARACTER(LEN=1), PARAMETER :: spdf(4) = ['s','p','d','f']
+    INTEGER                     :: nw
+    !
+    lab = '??'
+    IF ( c < 1 .OR. c > 4 ) RETURN
+    lab = ' ' // spdf(c)
+    DO nw = 1, MIN( upf(nt)%nwfc, SIZE(ehub_l_choice,2) )
+       IF ( ehub_l_choice(nt,nw) /= 1 )   CYCLE
+       IF ( upf(nt)%lchi(nw) /= c-1 )     CYCLE
+       IF ( upf(nt)%oc(nw) < 0.0_DP )     CYCLE
+       IF ( INDEX('123456789', upf(nt)%els(nw)(1:1)) > 0 ) lab = upf(nt)%els(nw)(1:1) // spdf(c)
+       RETURN
+    ENDDO
+    !
+  END FUNCTION ehub_dat_chanlab
+  !
+  !-----------------------------------------------------------------------
+  SUBROUTINE ehub_dat_block_u( fname, lmixed, hub_u, ns, replace )
+    !-----------------------------------------------------------------------
+    ! One acbn0_type = 1 block.  Body = hp_acbn0_write of the dev hp.x.
+    USE io_global, ONLY : ionode
+    USE ions_base, ONLY : atm
+    IMPLICIT NONE
+    CHARACTER(LEN=*), INTENT(IN) :: fname
+    LOGICAL,          INTENT(IN) :: lmixed, replace
+    REAL(DP),         INTENT(IN) :: hub_u(:,:,:), ns(:,:,:,:)
+    INTEGER                      :: na, nt, m1, m2, is, iunit, nspin
+    REAL(DP)                     :: occ, e_on
+    !
+    IF ( .NOT. ionode ) RETURN
+    nspin = SIZE(ns,3)
+    CALL ehub_dat_open( fname, replace, lmixed, .TRUE., iunit )
+    IF ( iunit < 0 ) RETURN
+    !
+    WRITE( iunit, '(/2x,79("-"))')
+    WRITE( iunit, '(2x,"Summary")')
+    WRITE( iunit, '(2x,79("-"))')
+    WRITE( iunit, '(/4x,"site n.  type  label  channel   occupation   U_ACBN0 (eV)")')
+    WRITE( iunit, '( 4x,"(one row per channel; occupation and U of that channel only)")')
+    DO na = 1, nat
+       nt = ityp(na)
+       IF ( ehub_lm(nt) == 0 ) CYCLE
+       DO m1 = 1, ehub_lm(nt)
+          IF ( ANY( ehub_l(1:m1-1,nt) == ehub_l(m1,nt) ) ) CYCLE     ! first m of this channel
+          occ = 0.0_DP
+          DO is = 1, nspin
+             DO m2 = 1, ehub_lm(nt)
+                IF ( ehub_l(m2,nt) == ehub_l(m1,nt) ) occ = occ + ns(m2,m2,is,na)
+             ENDDO
+          ENDDO
+          WRITE( iunit, '(6x,i3,4x,i3,3x,a6,4x,a2,6x,f9.4,4x,f10.4)') &
+                na, nt, TRIM(atm(nt)), ehub_dat_chanlab(nt,ehub_l(m1,nt)), occ, hub_u(na,m1,m1)*rytoev
+       ENDDO
+    ENDDO
+    !
+    ! ... energy: the v_hubbard_a0 loop with this block's U and this call's ns
+    e_on = 0.0_DP
+    DO na = 1, nat
+       nt = ityp(na)
+       IF ( ehub_lm(nt) == 0 ) CYCLE
+       DO is = 1, nspin
+          DO m1 = 1, ehub_lm(nt)
+             e_on = e_on + 0.5_DP*hub_u(na,m1,m1)*ns(m1,m1,is,na)
+             DO m2 = 1, ehub_lm(nt)
+                e_on = e_on - 0.5_DP*hub_u(na,m1,m2)*ns(m1,m2,is,na)*ns(m2,m1,is,na)
+             ENDDO
+          ENDDO
+       ENDDO
+    ENDDO
+    IF ( nspin == 1 ) e_on = 2.0_DP*e_on
+    !
+    WRITE( iunit, '(/2x,79("-"))')
+    IF ( lmixed ) THEN
+       WRITE( iunit, '(2x,"Hubbard energy with the MIXED U")')
+    ELSE
+       WRITE( iunit, '(2x,"One-shot Hubbard energy  (NOT self-consistent)")')
+    ENDIF
+    WRITE( iunit, '(2x,79("-"))')
+    WRITE( iunit, '(/4x,"E(+U) : ",f16.9," Ry  = ",f12.6," eV")') e_on, e_on*rytoev
+    IF ( lmixed ) THEN
+       WRITE( iunit, '( 4x,"Evaluated with the mixed U above and the output occupations of this call")')
+       WRITE( iunit, '( 4x,"(v_hubbard_a0 in v_hubbard_v.f90).  In the converged iteration this is the")')
+       WRITE( iunit, '( 4x,"E(+U) pw.x prints (not with ehub_pot_fix); earlier ones use the mixed ns.")')
+    ELSE
+       WRITE( iunit, '( 4x,"Evaluated with the one-shot U above and the occupations it was computed")')
+       WRITE( iunit, '( 4x,"from (v_hubbard_a0 in v_hubbard_v.f90); not a total-energy contribution.")')
+    ENDIF
+    !
+    WRITE( iunit, '(/2x,79("-"))')
+    WRITE( iunit, '(2x,"Full U matrix  U[na, m1, m2]  (eV)")')
+    WRITE( iunit, '(2x,79("-"))')
+    DO na = 1, nat
+       nt = ityp(na)
+       IF ( ehub_lm(nt) == 0 ) CYCLE
+       WRITE( iunit, '(/4x,"atom ",i3,"  type ",a,"   (",i2," x",i2,")")') &
+             na, TRIM(atm(nt)), ehub_lm(nt), ehub_lm(nt)
+       DO m1 = 1, ehub_lm(nt)
+          WRITE( iunit, '(6x,16f10.4)') (hub_u(na,m1,m2)*rytoev, m2 = 1, ehub_lm(nt))
+       ENDDO
+    ENDDO
+    !
+    WRITE( iunit, '(/2x,79("-"))')
+    WRITE( iunit, '(2x,"Occupation matrix  ns[na, m1, m2, spin]")')
+    WRITE( iunit, '(2x,79("-"))')
+    DO na = 1, nat
+       nt = ityp(na)
+       IF ( ehub_lm(nt) == 0 ) CYCLE
+       DO is = 1, nspin
+          WRITE( iunit, '(/4x,"atom ",i3,"  type ",a,"  spin ",i1)') na, TRIM(atm(nt)), is
+          DO m1 = 1, ehub_lm(nt)
+             WRITE( iunit, '(6x,16f10.4)') (ns(m1,m2,is,na), m2 = 1, ehub_lm(nt))
+          ENDDO
+       ENDDO
+    ENDDO
+    !
+    WRITE( iunit, '(/2x,79("="),/)')
+    CLOSE( iunit )
+    !
+  END SUBROUTINE ehub_dat_block_u
+  !
+  !-----------------------------------------------------------------------
+  SUBROUTINE ehub_dat_block_v( fname, lmixed, hub_v, ns, replace, updated )
+    !-----------------------------------------------------------------------
+    ! One acbn0_type = 2 block.  Body = hp_acbn0_write_v of the dev hp.x; the
+    ! cell -> nnc map is the counting used by write_ehub_uv and v_hubbard_v.
+    USE constants, ONLY : bohr_radius_angs
+    USE cell_base, ONLY : alat, at
+    USE io_global, ONLY : ionode
+    USE ions_base, ONLY : atm, tau
+    IMPLICIT NONE
+    CHARACTER(LEN=*), INTENT(IN) :: fname
+    LOGICAL,          INTENT(IN) :: lmixed, replace, updated
+    REAL(DP),         INTENT(IN) :: hub_v(:,:,:,:,:), ns(:,:,:,:,:,:)
+    INTEGER                      :: na, na1, na2, nt, nt1, nt2, m1, m2, is, iunit
+    INTEGER                      :: npair, ics, n1, n2, n3, nnc, thisnnc, ix, nspin
+    REAL(DP)                     :: occ, e_on, e_int, dtau(3), r(3), r2
+    REAL(DP), PARAMETER          :: veps = 1.0D-8   ! Ry; below this a pair carries no V
+    !
+    IF ( .NOT. ionode ) RETURN
+    CALL ehub_dat_open( fname, replace, lmixed, updated, iunit )
+    IF ( iunit < 0 ) RETURN
+    ics   = ehub_csize + 1
+    nspin = SIZE(ns,3)
+    !
+    ! ---- on-site U ------------------------------------------------------
+    WRITE( iunit, '(/2x,79("-"))')
+    WRITE( iunit, '(2x,"On-site U   = hub_v[na, na, m1, m2, cell 0]")')
+    WRITE( iunit, '(2x,79("-"))')
+    WRITE( iunit, '(/4x,"site n.  type  label  channel   occupation    U (eV)")')
+    WRITE( iunit, '( 4x,"(one row per channel; occupation and U of that channel only)")')
+    DO na = 1, nat
+       nt = ityp(na)
+       IF ( ehub_lm(nt) == 0 ) CYCLE
+       DO m1 = 1, ehub_lm(nt)
+          IF ( ANY( ehub_l(1:m1-1,nt) == ehub_l(m1,nt) ) ) CYCLE
+          occ = 0.0_DP
+          DO is = 1, nspin
+             DO m2 = 1, ehub_lm(nt)
+                IF ( ehub_l(m2,nt) == ehub_l(m1,nt) ) occ = occ + ns(m2,m2,is,na,na,1)
+             ENDDO
+          ENDDO
+          WRITE( iunit, '(6x,i3,4x,i3,3x,a6,4x,a2,6x,f9.4,4x,f10.4)') &
+                na, nt, TRIM(atm(nt)), ehub_dat_chanlab(nt,ehub_l(m1,nt)), occ, hub_v(na,na,m1,m1,1)*rytoev
+       ENDDO
+    ENDDO
+    !
+    ! ---- inter-site V, with the cell vector and distance -----------------
+    WRITE( iunit, '(/2x,79("-"))')
+    WRITE( iunit, '(2x,"Inter-site V")')
+    WRITE( iunit, '(2x,79("-"))')
+    WRITE( iunit, '(/4x,"na1  type1     na2  type2      cell [n1 n2 n3]", &
+          &"    d (A)    block      V (eV)")')
+    WRITE( iunit, '( 4x,"(one row per (channel of na1, channel of na2) block; ", &
+          &"V is constant inside a block)")')
+    npair = 0
+    nnc   = 2
+    DO n1 = -ehub_nn_dim(1), ehub_nn_dim(1)
+    DO n2 = -ehub_nn_dim(2), ehub_nn_dim(2)
+    DO n3 = -ehub_nn_dim(3), ehub_nn_dim(3)
+       IF ( n1 == 0 .AND. n2 == 0 .AND. n3 == 0 ) THEN
+          thisnnc = 1
+       ELSE
+          thisnnc = nnc
+       ENDIF
+       DO na1 = 1, nat
+          nt1 = ityp(na1)
+          IF ( ehub_lm(nt1) == 0 ) CYCLE
+          DO na2 = 1, nat
+             nt2 = ityp(na2)
+             IF ( ehub_lm(nt2) == 0 ) CYCLE
+             IF ( ehub_nn_vect(n1+ics,n2+ics,n3+ics,na1,na2) == 0 ) CYCLE
+             IF ( n1 == 0 .AND. n2 == 0 .AND. n3 == 0 .AND. na1 == na2 ) CYCLE
+             IF ( MAXVAL(ABS(hub_v(na1,na2,1:ehub_lm(nt1),1:ehub_lm(nt2),thisnnc))) < veps ) CYCLE
+             npair = npair + 1
+             ! distance at the CURRENT geometry, same expression as hubbard_nns.f90
+             ! (ehub_nn_leng keeps the setup geometry during relax / md)
+             dtau(:) = tau(:,na1) - tau(:,na2)
+             r2 = 0.0_DP
+             DO ix = 1, 3
+                r(ix) = n1 * at(ix,1) + n2 * at(ix,2) + n3 * at(ix,3) - dtau(ix)
+                r2 = r2 + r(ix) * r(ix)
+             ENDDO
+             DO m1 = 1, ehub_lm(nt1)
+                IF ( ANY( ehub_l(1:m1-1,nt1) == ehub_l(m1,nt1) ) ) CYCLE
+                DO m2 = 1, ehub_lm(nt2)
+                   IF ( ANY( ehub_l(1:m2-1,nt2) == ehub_l(m2,nt2) ) ) CYCLE
+                   WRITE( iunit, '(4x,i3,2x,a6,4x,i3,2x,a6,4x,"[",3i3," ]",4x,f7.4,3x,a2,"-",a2,4x,f10.4)') &
+                         na1, TRIM(atm(nt1)), na2, TRIM(atm(nt2)), n1, n2, n3, &
+                         SQRT(r2)*alat*bohr_radius_angs, &
+                         ehub_dat_chanlab(nt1,ehub_l(m1,nt1)), ehub_dat_chanlab(nt2,ehub_l(m2,nt2)), &
+                         hub_v(na1,na2,m1,m2,thisnnc)*rytoev
+                ENDDO
+             ENDDO
+          ENDDO
+       ENDDO
+       IF ( .NOT.( n1 == 0 .AND. n2 == 0 .AND. n3 == 0 ) ) THEN
+          IF ( MAXVAL(ehub_nn_vect(n1+ics,n2+ics,n3+ics,:,:)) == 1 ) nnc = nnc + 1
+       ENDIF
+    ENDDO
+    ENDDO
+    ENDDO
+    IF ( npair == 0 ) WRITE( iunit, '(/4x,"(none - check ehub_nn_distance)")')
+    WRITE( iunit, '(/4x,i5," pair(s) with |V| > ",es8.1," Ry")') npair, veps
+    !
+    ! ---- energy: the v_hubbard_v loops with this block's U, V and this call's ns
+    e_on = 0.0_DP ; e_int = 0.0_DP
+    DO na1 = 1, nat
+       nt1 = ityp(na1)
+       IF ( ehub_lm(nt1) == 0 ) CYCLE
+       DO is = 1, nspin
+          DO m1 = 1, ehub_lm(nt1)
+             e_on = e_on + 0.5_DP*hub_v(na1,na1,m1,m1,1)*ns(m1,m1,is,na1,na1,1)
+             DO m2 = 1, ehub_lm(nt1)
+                e_on = e_on - 0.5_DP*hub_v(na1,na1,m1,m2,1) &
+                            * ns(m1,m2,is,na1,na1,1)*ns(m2,m1,is,na1,na1,1)
+             ENDDO
+          ENDDO
+       ENDDO
+    ENDDO
+    DO na1 = 1, nat
+       nt1 = ityp(na1)
+       IF ( ehub_lm(nt1) == 0 ) CYCLE
+       DO na2 = 1, nat
+          nt2 = ityp(na2)
+          IF ( ehub_lm(nt2) == 0 ) CYCLE
+          IF ( ehub_nn_vect(ics,ics,ics,na1,na2) == 0 ) CYCLE
+          DO is = 1, nspin
+             DO m1 = 1, ehub_lm(nt1)
+                DO m2 = 1, ehub_lm(nt2)
+                   e_int = e_int - 0.5_DP*hub_v(na1,na2,m1,m2,1) &
+                                 * ns(m1,m2,is,na1,na2,1)*ns(m2,m1,is,na2,na1,1)
+                ENDDO
+             ENDDO
+          ENDDO
+       ENDDO
+    ENDDO
+    nnc = 2
+    DO n1 = -ehub_nn_dim(1), ehub_nn_dim(1)
+    DO n2 = -ehub_nn_dim(2), ehub_nn_dim(2)
+    DO n3 = -ehub_nn_dim(3), ehub_nn_dim(3)
+       IF ( n1 == 0 .AND. n2 == 0 .AND. n3 == 0 ) CYCLE
+       DO na1 = 1, nat
+          nt1 = ityp(na1)
+          IF ( ehub_lm(nt1) == 0 ) CYCLE
+          DO na2 = 1, nat
+             nt2 = ityp(na2)
+             IF ( ehub_lm(nt2) == 0 ) CYCLE
+             IF ( ehub_nn_vect(n1+ics,n2+ics,n3+ics,na1,na2) == 0 ) CYCLE
+             DO is = 1, nspin
+                DO m1 = 1, ehub_lm(nt1)
+                   DO m2 = 1, ehub_lm(nt2)
+                      ! NOTE: ns* = ns  (v_hubbard_v.f90)
+                      e_int = e_int - 0.5_DP*hub_v(na1,na2,m1,m2,nnc) &
+                                    * ns(m1,m2,is,na1,na2,nnc)*ns(m1,m2,is,na1,na2,nnc)
+                   ENDDO
+                ENDDO
+             ENDDO
+          ENDDO
+       ENDDO
+       IF ( MAXVAL(ehub_nn_vect(n1+ics,n2+ics,n3+ics,:,:)) == 1 ) nnc = nnc + 1
+    ENDDO
+    ENDDO
+    ENDDO
+    IF ( nspin == 1 ) THEN
+       e_on = 2.0_DP*e_on ; e_int = 2.0_DP*e_int
+    ENDIF
+    !
+    WRITE( iunit, '(/2x,79("-"))')
+    IF ( lmixed ) THEN
+       WRITE( iunit, '(2x,"Extended Hubbard energy with the MIXED U, V")')
+    ELSE
+       WRITE( iunit, '(2x,"One-shot extended Hubbard energy  (NOT self-consistent, see below)")')
+    ENDIF
+    WRITE( iunit, '(2x,79("-"))')
+    WRITE( iunit, '(/4x,"on-site   (U)  : ",f16.9," Ry  = ",f12.6," eV")') e_on,        e_on*rytoev
+    WRITE( iunit, '( 4x,"inter-site (V) : ",f16.9," Ry  = ",f12.6," eV")') e_int,       e_int*rytoev
+    WRITE( iunit, '( 4x,"E(+U+V)        : ",f16.9," Ry  = ",f12.6," eV")') e_on+e_int, (e_on+e_int)*rytoev
+    IF ( lmixed ) THEN
+       WRITE( iunit, '(/4x,"Evaluated with the mixed U, V above and the output occupations of this")')
+       WRITE( iunit, '( 4x,"call (v_hubbard_v loops).  In the converged iteration this is the E(+U+V)")')
+       WRITE( iunit, '( 4x,"pw.x prints (not with ehub_pot_fix); earlier iterations use the mixed ns.")')
+    ELSEIF ( updated ) THEN
+       WRITE( iunit, '(/4x,"Evaluated with the one-shot U, V above and the occupations they were")')
+       WRITE( iunit, '( 4x,"computed from (v_hubbard_v loops); U, V and the density are not")')
+       WRITE( iunit, '( 4x,"mutually self-consistent, so this is not a total-energy contribution.")')
+    ELSE
+       WRITE( iunit, '(/4x,"stop_acbn0 skip: U, V are those of the last update, the occupations")')
+       WRITE( iunit, '( 4x,"those of this call (v_hubbard_v loops); not a consistent pair and not")')
+       WRITE( iunit, '( 4x,"a total-energy contribution.")')
+    ENDIF
+    !
+    ! ---- full on-site matrices ------------------------------------------
+    WRITE( iunit, '(/2x,79("-"))')
+    WRITE( iunit, '(2x,"Full on-site U matrix  (eV)")')
+    WRITE( iunit, '(2x,79("-"))')
+    DO na = 1, nat
+       nt = ityp(na)
+       IF ( ehub_lm(nt) == 0 ) CYCLE
+       WRITE( iunit, '(/4x,"atom ",i3,"  type ",a,"   (",i2," x",i2,")")') &
+             na, TRIM(atm(nt)), ehub_lm(nt), ehub_lm(nt)
+       DO m1 = 1, ehub_lm(nt)
+          WRITE( iunit, '(6x,16f10.4)') (hub_v(na,na,m1,m2,1)*rytoev, m2 = 1, ehub_lm(nt))
+       ENDDO
+    ENDDO
+    !
+    ! ---- on-site occupation matrices ------------------------------------
+    WRITE( iunit, '(/2x,79("-"))')
+    WRITE( iunit, '(2x,"On-site occupation matrix  ns[na, m1, m2, spin]")')
+    WRITE( iunit, '(2x,79("-"))')
+    DO na = 1, nat
+       nt = ityp(na)
+       IF ( ehub_lm(nt) == 0 ) CYCLE
+       DO is = 1, nspin
+          WRITE( iunit, '(/4x,"atom ",i3,"  type ",a,"  spin ",i1)') na, TRIM(atm(nt)), is
+          DO m1 = 1, ehub_lm(nt)
+             WRITE( iunit, '(6x,16f10.4)') (ns(m1,m2,is,na,na,1), m2 = 1, ehub_lm(nt))
+          ENDDO
+       ENDDO
+    ENDDO
+    !
+    WRITE( iunit, '(/2x,79("="),/)')
+    CLOSE( iunit )
+    !
+  END SUBROUTINE ehub_dat_block_v
   
 END MODULE ldaV
