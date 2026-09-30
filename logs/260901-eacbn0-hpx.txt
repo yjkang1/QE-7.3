@@ -240,7 +240,7 @@ TYPE occmat_4 and pass it across.  Legal only because an external subroutine
 has no explicit interface.  A MODULE turns it into a hard type error.
 
 STATIC VERIFICATION (done before the job ran; this is how a failure would be
-debugged anyway).  Extract our copy, undo the renames, diff vs upstream:
+debugged anyway).  Extract our copy, undo the renames, diff vs stock:
     hp_acbn0_ns_a0   <- new_ns_v.f90:233-633     BYTE-IDENTICAL
     hp_acbn0_symm_n4 <- new_ns_v.f90:2964-3165   identical + the 1 bugfix
     hp_acbn0_orberi  <- new_ns_v.f90:3780-3818   BYTE-IDENTICAL
@@ -430,7 +430,7 @@ over, and neither is our doing:
          (p%O(m3,m1,1,na)*p%O(m4,m2,2,na) + p%O(m3,m1,2,na)*p%O(m4,m2,1,na))
      With nspin = 1 that reads slot 2 of a 1-slot array.  The
      IF (nspin==1) n%O = 0.5*n%O guard at new_ns_v.f90:452 halves the array
-     but never widens it.  Upstream bug.
+     but never widens it.  Stock (Lee-Son) bug.
   => the nspin /= 2 rejection in hp_acbn0_check is load-bearing.
 
 GaAs MANIFOLD: ONE CHANNEL PER TYPE.  The textbook eACBN0 GaAs uses Ga 4s AND
@@ -911,7 +911,7 @@ symmetrize_n4 is no longer duplicated - V2 needed a ldaV copy because the S3
 one had been converted; after V3 they are the same routine.
 
 --------------------------------------------------------------------------------
- BUG 4 (upstream, latent) - hubbard_get_nnc returns nnc UNDEFINED
+ BUG 4 (stock, latent) - hubbard_get_nnc returns nnc UNDEFINED
 --------------------------------------------------------------------------------
 
 PW/src/hubbard_nns.f90:241.  nnc is assigned only inside
