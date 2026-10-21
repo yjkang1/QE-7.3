@@ -48,8 +48,8 @@
 !      orthowfcv()                 orthoUwfc(.FALSE.)          idem
 !      copy_v_wfc                  copy_U_wfc                  (inside those)
 !      ehub_u(na,m1,m2)            -                           hub_u argument
-!      ehub_l_choice(nt,l+1)       -                           acbn0_l_choice (ldaU_hp)
-!      remove_ehub_u(nt,l+1)       -                           acbn0_rm_ehub_u (ldaU_hp, 1 = remove)
+!      ehub_l_choice(nt,l+1)       -                           acbn0_ehub_l_choice (ldaU_hp)
+!      remove_ehub_u(nt,l+1)       -                           acbn0_remove_ehub_u (ldaU_hp, 0 = remove)
 !
 !  Stages S3 and V3 collapsed ehub_l(m,nt) to the scalar Hubbard_l(nt)+1,
 !  which is correct only while a type carries ONE channel, and multi-channel
@@ -844,7 +844,7 @@ SUBROUTINE hp_acbn0_check()
   !
   IF ( .NOT.lda_plus_u ) CALL errore( 'hp_acbn0_check', &
      'acbn0 > 0 needs a Hubbard manifold, but none was selected: set &
-     &acbn0_l_choice(nt,b) = 1 in &INPUTHP (the pw.x ground state itself must &
+     &acbn0_ehub_l_choice(nt,b) = 1 in &INPUTHP (the pw.x ground state itself must &
      &be a plain non-Hubbard SCF).', 1 )
   !
   ! ortho-atomic is a requirement, not a preference: ACBN0's occupation
@@ -932,7 +932,7 @@ END SUBROUTINE hp_acbn0_check
 SUBROUTINE hp_acbn0_write( ns, hub_u )
   !---------------------------------------------------------------------
   !
-  ! Write the ACBN0 Hubbard parameters to eACBN0_hub_dev.dat (and to stdout).
+  ! Write the ACBN0 Hubbard parameters to eACBN0_hub.dat (and to stdout).
   !
   ! Note on the "scalar U" column: hub_u(na,m1,m2) is an (m1,m2) matrix, but
   ! the kernel builds it as
@@ -969,7 +969,7 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
   !
   ! Written into outdir (tmp_dir), next to prefix.save, not the launch dir.
   !
-  filename = TRIM(tmp_dir) // 'eACBN0_hub_dev.dat'
+  filename = TRIM(tmp_dir) // 'eACBN0_hub.dat'
   iunit = find_free_unit()
   OPEN( iunit, file = TRIM(filename), form = 'formatted', status = 'unknown' )
   !
@@ -1006,7 +1006,7 @@ SUBROUTINE hp_acbn0_write( ns, hub_u )
      ! built per l, see the header note), so the diagonal block's value is
      ! that channel's U.  With several channels the (1,1) element alone
      ! would show only the first channel - or 0 when its on-site U is masked
-     ! by acbn0_rm_ehub_u.  Cross blocks are in the full matrix below.
+     ! by acbn0_remove_ehub_u.  Cross blocks are in the full matrix below.
      !
      DO m1 = 1, lm(nt)
         IF ( ANY( lch(1:m1-1,nt) == lch(m1,nt) ) ) CYCLE     ! first m of this channel
@@ -1104,7 +1104,7 @@ SUBROUTINE hp_acbn0_ns_a0(ns, hub_u)
                                    deallocate_bec_type
   USE uspp_param,           ONLY : upf
   USE hp_acbn0_man,         ONLY : lm_max, lm, lch, ofs
-  USE ldaU_hp,              ONLY : acbn0_rm_ehub_u
+  USE ldaU_hp,              ONLY : acbn0_remove_ehub_u
 
   IMPLICIT NONE
 
@@ -1449,16 +1449,16 @@ SUBROUTINE hp_acbn0_ns_a0(ns, hub_u)
                               HF%J(lch(m1,nt),lch(m2,nt),na)
         ENDIF
         !
-        ! One-shot (no mixing).  acbn0_rm_ehub_u is Lee & Son's
-        ! remove_ehub_u with the flag inverted (1 = remove), applied exactly
-        ! as new_ns_v.f90:1362 does - a product over both channel indices,
-        ! on the on-site block only, AFTER the ratio is formed.  The channel
-        ! stays in the manifold, so the N^IJ weights and the ERI sums above
-        ! are untouched.
+        ! One-shot (no mixing).  acbn0_remove_ehub_u is Lee & Son's
+        ! remove_ehub_u with the same convention (1 = keep, 0 = remove),
+        ! applied exactly as new_ns_v.f90:1362 does - a product over both
+        ! channel indices, on the on-site block only, AFTER the ratio is
+        ! formed.  The channel stays in the manifold, so the N^IJ weights and
+        ! the ERI sums above are untouched.
         !
-        hub_u(na,m1,m2) = hub_u_(na,m1,m2)                              &
-                        * DBLE( 1 - acbn0_rm_ehub_u(nt,lch(m1,nt)) )    &
-                        * DBLE( 1 - acbn0_rm_ehub_u(nt,lch(m2,nt)) )
+        hub_u(na,m1,m2) = hub_u_(na,m1,m2)                          &
+                        * DBLE( acbn0_remove_ehub_u(nt,lch(m1,nt)) )    &
+                        * DBLE( acbn0_remove_ehub_u(nt,lch(m2,nt)) )
         !
      ENDDO ! m2
      ENDDO ! m1
@@ -1919,7 +1919,7 @@ SUBROUTINE hp_acbn0_check_v()
   !
   IF ( .NOT.lda_plus_u ) CALL errore( 'hp_acbn0_check_v', &
      'acbn0 > 0 needs a Hubbard manifold, but none was selected: set &
-     &acbn0_l_choice(nt,b) = 1 in &INPUTHP (the pw.x ground state itself must &
+     &acbn0_ehub_l_choice(nt,b) = 1 in &INPUTHP (the pw.x ground state itself must &
      &be a plain non-Hubbard SCF).', 1 )
   !
   ! ortho-atomic is a requirement, not a preference: the ACBN0 ratio is
@@ -2350,7 +2350,7 @@ END SUBROUTINE hp_acbn0_dump_u
 SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   !---------------------------------------------------------------------
   !
-  ! Write the eACBN0 parameters to eACBN0_hub_dev.dat.
+  ! Write the eACBN0 parameters to eACBN0_hub.dat.
   !
   ! The on-site U is the na1 = na2, cell [0 0 0] block of hub_v, not a
   ! separate array.  Howto2.pdf: "A = B and l = m = n = 0 >>> on-site U
@@ -2389,7 +2389,7 @@ SUBROUTINE hp_acbn0_write_v( ns, hub_v )
   !
   ! Written into outdir (tmp_dir), next to prefix.save, not the launch dir.
   !
-  filename = TRIM(tmp_dir) // 'eACBN0_hub_dev.dat'
+  filename = TRIM(tmp_dir) // 'eACBN0_hub.dat'
   iunit = find_free_unit()
   OPEN( iunit, file = TRIM(filename), form = 'formatted', status = 'unknown' )
   !
@@ -2684,7 +2684,7 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
                                    deallocate_bec_type
   USE uspp_param,           ONLY : upf
   USE hp_acbn0_man,         ONLY : lm_max, lm, lch, ofs
-  USE ldaU_hp,              ONLY : acbn0_rm_ehub_u
+  USE ldaU_hp,              ONLY : acbn0_remove_ehub_u
 
   IMPLICIT NONE
 
@@ -3397,17 +3397,17 @@ SUBROUTINE hp_acbn0_ns_e0_1(ns, hub_v)
                                  HF(1)%J(lch(m1,nt),lch(m2,nt),na,na)
         ENDIF
         !
-        ! One-shot (no mixing).  acbn0_rm_ehub_u is Lee & Son's
-        ! remove_ehub_u with the flag inverted (1 = remove), applied exactly
-        ! as new_ns_v.f90:1362-1371 does - a product over both channel
-        ! indices, on the on-site block only, AFTER the ratio is formed.
-        ! V (every na1 /= na2 or nnc > 1 block) is never masked; the channel
-        ! stays in the manifold, so the N^IJ weights and the ERI sums above
-        ! are untouched.
+        ! One-shot (no mixing).  acbn0_remove_ehub_u is Lee & Son's
+        ! remove_ehub_u with the same convention (1 = keep, 0 = remove),
+        ! applied exactly as new_ns_v.f90:1362-1371 does - a product over
+        ! both channel indices, on the on-site block only, AFTER the ratio is
+        ! formed.  V (every na1 /= na2 or nnc > 1 block) is never masked; the
+        ! channel stays in the manifold, so the N^IJ weights and the ERI sums
+        ! above are untouched.
         !
-        hub_v(na,na,m1,m2,1) = hub_v_(na,na,m1,m2)                          &
-                             * DBLE( 1 - acbn0_rm_ehub_u(nt,lch(m1,nt)) )    &
-                             * DBLE( 1 - acbn0_rm_ehub_u(nt,lch(m2,nt)) )
+        hub_v(na,na,m1,m2,1) = hub_v_(na,na,m1,m2)                      &
+                             * DBLE( acbn0_remove_ehub_u(nt,lch(m1,nt)) )    &
+                             * DBLE( acbn0_remove_ehub_u(nt,lch(m2,nt)) )
         !
      ENDDO ! m2
      ENDDO ! m1

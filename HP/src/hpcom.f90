@@ -67,7 +67,7 @@ MODULE ldaU_hp
                                             !   2 = on-site U + V   (eACBN0)
                                             ! When > 0, hp.x computes the Hubbard
                                             ! parameters from the pseudo-hybrid ACBN0
-                                            ! functional, writes eACBN0_hub_dev.dat, and
+                                            ! functional, writes eACBN0_hub.dat, and
                                             ! stops before the DFPT loop. See eACBN0.f90.
              iter_best,       &             ! Number of the iteration at which the best accuracy
                                             ! for chi was reached
@@ -101,7 +101,7 @@ MODULE ldaU_hp
   REAL(DP) :: nn_distance                   ! Inter-site cutoff d_IJ in Angstrom for
                                             ! acbn0 = 2.  Must be set in &INPUTHP.
   !
-  INTEGER :: acbn0_l_choice(ntypx,6)         ! Lee & Son's ehub_l_choice(a,b).  a = atomic
+  INTEGER :: acbn0_ehub_l_choice(ntypx,6)    ! Lee & Son's ehub_l_choice(a,b).  a = atomic
                                              ! type, b = l+1 (1 = s, 2 = p, 3 = d); set 1 to
                                              ! put that channel of type a in the Hubbard
                                              ! manifold.  Default 0.  For each l the
@@ -114,10 +114,10 @@ MODULE ldaU_hp
                                              ! the pw.x ground state must carry no HUBBARD
                                              ! card.
   !
-  INTEGER :: acbn0_rm_ehub_u(ntypx,6)        ! Lee & Son's remove_ehub_u(a,b), with the
-                                             ! flag read the natural way: 1 = REMOVE the
-                                             ! on-site U of channel b (= l+1) of type a,
-                                             ! 0 = keep (default).  Mask on the on-site U
+  INTEGER :: acbn0_remove_ehub_u(ntypx,6)    ! Lee & Son's remove_ehub_u(a,b), same
+                                             ! convention as stock: 1 = keep (default),
+                                             ! 0 = REMOVE the on-site U of channel b
+                                             ! (= l+1) of type a.  Mask on the on-site U
                                              ! only, applied as a product over both
                                              ! channel indices after the ACBN0 ratio is
                                              ! formed, so the whole row and column go.

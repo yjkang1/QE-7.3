@@ -28,7 +28,7 @@ SUBROUTINE hp_readin()
                                disable_type_analysis, docc_thr, num_neigh, lmin, rmax, &
                                nmix, nq1, nq2, nq3, alpha_mix, start_q, last_q, maxter, &
                                determine_q_mesh_only, acbn0, nn_distance,       &
-                         acbn0_l_choice, acbn0_rm_ehub_u
+                         acbn0_ehub_l_choice, acbn0_remove_ehub_u
   USE paw_variables,    ONLY : okpaw
   !
   IMPLICIT NONE
@@ -46,7 +46,7 @@ SUBROUTINE hp_readin()
                          start_q, last_q, sum_pertq, ethr_nscf, num_neigh, lmin,      &
                          determine_num_pert_only, disable_type_analysis, docc_thr,    &
                          determine_q_mesh_only, acbn0, nn_distance,       &
-                         acbn0_l_choice, acbn0_rm_ehub_u
+                         acbn0_ehub_l_choice, acbn0_remove_ehub_u
   !
   ! Note: meta_ionode is a single processor that reads the input
   !       Data read from input is subsequently broadcast to all processors
@@ -74,8 +74,8 @@ SUBROUTINE hp_readin()
   find_atpert        = 1
   acbn0              = 0
   nn_distance        = -1.0D0
-  acbn0_l_choice(:,:)   = 0
-  acbn0_rm_ehub_u(:,:)  = 0
+  acbn0_ehub_l_choice(:,:) = 0
+  acbn0_remove_ehub_u(:,:) = 1
   background         = 'no'
   compute_hp         = .FALSE.
   sum_pertq          = .FALSE.
@@ -126,7 +126,7 @@ SUBROUTINE hp_readin()
   !
   ! ACBN0 only: if the pw.x run carried no HUBBARD card, MODULE ldaU is empty
   ! and the transplanted kernels have no manifold to project onto.  With
-  ! acbn0 > 0 the manifold is declared here from acbn0_l_choice and official
+  ! acbn0 > 0 the manifold is declared here from acbn0_ehub_l_choice and official
   ! QE's own init_hubbard builds everything from it.  See the routine below.
   !
   CALL acbn0_manifold_setup()
@@ -156,7 +156,7 @@ CONTAINS
 SUBROUTINE acbn0_manifold_setup()
   !---------------------------------------------------------------------
   !
-  ! Declare the Hubbard manifold from acbn0_l_choice in &INPUTHP and let
+  ! Declare the Hubbard manifold from acbn0_ehub_l_choice in &INPUTHP and let
   ! official QE build everything else from it.
   !
   ! WHY THIS EXISTS.  The transplanted ACBN0 kernels read the manifold out of
@@ -169,7 +169,7 @@ SUBROUTINE acbn0_manifold_setup()
   ! &system, one program earlier - and the pw.x ground state stays a plain
   ! SCF, exactly as in their workflow.
   !
-  ! CHANNEL SELECTION mirrors ldaV.f90 (init_lda_plus_v): acbn0_l_choice(nt,b)
+  ! CHANNEL SELECTION mirrors ldaV.f90 (init_lda_plus_v): acbn0_ehub_l_choice(nt,b)
   ! = 1 selects angular momentum l = b-1 of type nt; of the PP_CHI channels
   ! with that l the one with the highest principal quantum number (the valence
   ! one) is taken; selected channels are then ordered as they appear in the
@@ -219,11 +219,11 @@ SUBROUTINE acbn0_manifold_setup()
   CHARACTER(LEN=2) :: lab
   CHARACTER(LEN=1) :: spdf(0:5) = ['s','p','d','f','g','h']
   !
-  given = ANY( acbn0_l_choice(1:ntyp,:) /= 0 )
+  given = ANY( acbn0_ehub_l_choice(1:ntyp,:) /= 0 )
   !
   IF ( acbn0 == 0 ) THEN
      IF ( given ) CALL errore( 'acbn0_manifold_setup', &
-        'acbn0_l_choice is meaningful only for acbn0 = 1 or 2', 1 )
+        'acbn0_ehub_l_choice is meaningful only for acbn0 = 1 or 2', 1 )
      RETURN
   ENDIF
   !
@@ -238,27 +238,27 @@ SUBROUTINE acbn0_manifold_setup()
   IF ( lda_plus_u ) CALL errore( 'acbn0_manifold_setup', &
      'acbn0 > 0 needs a plain (non-Hubbard) pw.x ground state, but this one &
      &carries a HUBBARD card.  Remove the HUBBARD card from the pw.x input, &
-     &re-run the SCF, and select the manifold with acbn0_l_choice in &INPUTHP.', 1 )
+     &re-run the SCF, and select the manifold with acbn0_ehub_l_choice in &INPUTHP.', 1 )
   !
   IF ( .NOT.given ) CALL errore( 'acbn0_manifold_setup', &
      'acbn0 > 0 needs the Hubbard manifold selected in &INPUTHP: set &
-     &acbn0_l_choice(nt,b) = 1 (b = 1 s, 2 p, 3 d) for at least one type.', 1 )
+     &acbn0_ehub_l_choice(nt,b) = 1 (b = 1 s, 2 p, 3 d) for at least one type.', 1 )
   !
   DO nt = 1, ntyp
      DO b = 1, 6
-        IF ( acbn0_l_choice(nt,b) /= 0 .AND. acbn0_l_choice(nt,b) /= 1 ) &
+        IF ( acbn0_ehub_l_choice(nt,b) /= 0 .AND. acbn0_ehub_l_choice(nt,b) /= 1 ) &
            CALL errore( 'acbn0_manifold_setup', &
-           'acbn0_l_choice must be 0 or 1', nt )
-        IF ( acbn0_l_choice(nt,b) == 1 .AND. b-1 > lmax_acbn0 ) &
+           'acbn0_ehub_l_choice must be 0 or 1', nt )
+        IF ( acbn0_ehub_l_choice(nt,b) == 1 .AND. b-1 > lmax_acbn0 ) &
            CALL errore( 'acbn0_manifold_setup', &
-           'ACBN0 is implemented for s, p and d only (acbn0_l_choice b = 1, 2, 3)', nt )
-        IF ( acbn0_rm_ehub_u(nt,b) /= 0 .AND. acbn0_rm_ehub_u(nt,b) /= 1 ) &
+           'ACBN0 is implemented for s, p and d only (acbn0_ehub_l_choice b = 1, 2, 3)', nt )
+        IF ( acbn0_remove_ehub_u(nt,b) /= 0 .AND. acbn0_remove_ehub_u(nt,b) /= 1 ) &
            CALL errore( 'acbn0_manifold_setup', &
-           'acbn0_rm_ehub_u must be 0 or 1', nt )
-        IF ( acbn0_rm_ehub_u(nt,b) == 1 .AND. acbn0_l_choice(nt,b) /= 1 ) &
+           'acbn0_remove_ehub_u must be 0 or 1', nt )
+        IF ( acbn0_remove_ehub_u(nt,b) == 0 .AND. acbn0_ehub_l_choice(nt,b) /= 1 ) &
            CALL errore( 'acbn0_manifold_setup', &
-           'acbn0_rm_ehub_u set for a channel that is not in the manifold &
-           &(acbn0_l_choice is 0 there)', nt )
+           'acbn0_remove_ehub_u = 0 set for a channel that is not in the manifold &
+           &(acbn0_ehub_l_choice is 0 there)', nt )
      ENDDO
   ENDDO
   !
@@ -296,9 +296,9 @@ SUBROUTINE acbn0_manifold_setup()
               best(l) = nw
            ENDIF
         ENDDO
-        IF ( acbn0_l_choice(nt,l+1) == 1 .AND. best(l) == 0 ) &
+        IF ( acbn0_ehub_l_choice(nt,l+1) == 1 .AND. best(l) == 0 ) &
            CALL errore( 'acbn0_manifold_setup', &
-           'acbn0_l_choice selects an l that the pseudopotential of this type &
+           'acbn0_ehub_l_choice selects an l that the pseudopotential of this type &
            &has no (occupied, labelled) atomic wavefunction for', nt )
      ENDDO
      !
@@ -309,7 +309,7 @@ SUBROUTINE acbn0_manifold_setup()
      DO nw = 1, upf(nt)%nwfc
         l = upf(nt)%lchi(nw)
         IF ( l > lmax_acbn0 )                CYCLE
-        IF ( acbn0_l_choice(nt,l+1) /= 1 )   CYCLE
+        IF ( acbn0_ehub_l_choice(nt,l+1) /= 1 )   CYCLE
         IF ( nw /= best(l) )                 CYCLE
         !
         lab = upf(nt)%els(nw)
@@ -352,20 +352,20 @@ SUBROUTINE acbn0_manifold_setup()
   IF ( ALLOCATED(wfcU) ) DEALLOCATE( wfcU )
   ALLOCATE( wfcU(npwx*npol, nwfcU) )
   !
-  WRITE( stdout, '(/5x,"Hubbard manifold selected in &INPUTHP (acbn0_l_choice)")')
+  WRITE( stdout, '(/5x,"Hubbard manifold selected in &INPUTHP (acbn0_ehub_l_choice)")')
   WRITE( stdout, '(5x,"(the pw.x run carried no HUBBARD card)")')
   DO nt = 1, ntyp
-     IF ( ALL( acbn0_l_choice(nt,:) == 0 ) ) CYCLE
+     IF ( ALL( acbn0_ehub_l_choice(nt,:) == 0 ) ) CYCLE
      WRITE( stdout, '(7x,"type ",i2,":")', ADVANCE='NO') nt
      WRITE( stdout, '(3x,i1,a1)', ADVANCE='NO') Hubbard_n(nt), spdf(Hubbard_l(nt))
      IF ( Hubbard_l2(nt) >= 0 .AND. Hubbard_U2(nt) /= 0.0_DP ) &
         WRITE( stdout, '("  + ",i1,a1)', ADVANCE='NO') Hubbard_n2(nt), spdf(Hubbard_l2(nt))
      IF ( backall(nt) ) &
         WRITE( stdout, '("  + ",i1,a1)', ADVANCE='NO') Hubbard_n3(nt), spdf(Hubbard_l3(nt))
-     IF ( ANY( acbn0_rm_ehub_u(nt,:) == 1 ) ) THEN
+     IF ( ANY( acbn0_remove_ehub_u(nt,:) == 0 ) ) THEN
         WRITE( stdout, '("     on-site U removed for:")', ADVANCE='NO')
         DO b = 1, lmax_acbn0+1
-           IF ( acbn0_rm_ehub_u(nt,b) == 1 ) WRITE( stdout, '(1x,a1)', ADVANCE='NO') spdf(b-1)
+           IF ( acbn0_remove_ehub_u(nt,b) == 0 ) WRITE( stdout, '(1x,a1)', ADVANCE='NO') spdf(b-1)
         ENDDO
      ENDIF
      WRITE( stdout, * )

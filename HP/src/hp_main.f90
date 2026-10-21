@@ -60,7 +60,7 @@ PROGRAM hp_main
   ! for the HP calculation
   !
   ! ACBN0 route.  Obtain the Hubbard parameters from the pseudo-hybrid ACBN0
-  ! functional rather than from DFPT, write eACBN0_hub_dev.dat, and stop.
+  ! functional rather than from DFPT, write eACBN0_hub.dat, and stop.
   !
   ! This must happen HERE - after hp_readin() -> read_file() has restored the
   ! pw.x ground state, but BEFORE hp_init() and hp_summary().  Two reasons:
