@@ -1,0 +1,140 @@
+
+     Program HP v.7.3 starts on 30Oct2026 at 17: 0: 0 
+
+     This program is part of the open-source Quantum ESPRESSO suite
+     for quantum simulation of materials; please cite
+         "P. Giannozzi et al., J. Phys.:Condens. Matter 21 395502 (2009);
+         "P. Giannozzi et al., J. Phys.:Condens. Matter 29 465901 (2017);
+         "P. Giannozzi et al., J. Chem. Phys. 152 154105 (2020);
+          URL http://www.quantum-espresso.org", 
+     in publications or presentations arising from this work. More details at
+     http://www.quantum-espresso.org/quote
+
+     Parallel version (MPI), running on    32 processors
+
+     MPI processes distributed on     1 nodes
+     K-points division:     npool     =      32
+     262268 MiB available memory on the printing compute node when the environment starts
+ 
+
+     =---------------------------------------------------------------------------=
+
+           Calculation of Hubbard parameters using the HP code based on DFPT      
+
+               Please cite the following papers when using this program:          
+
+                 - HP code : Comput. Phys. Commun. 279, 108455 (2022).            
+
+                                                                                  
+
+           For a nonrelativistic, collinear calculation:                          
+
+                 - Theory  : I. Timrov et al, Phys. Rev. B 98,  085127 (2018) and 
+
+                             I. Timrov et al, Phys. Rev. B 103, 045141 (2021).    
+
+                                                                                  
+
+           For a fully-relativistic, and/or noncollinear calculation:             
+
+                 - Theory  : L. Binci et al., Phys. Rev. B 108, 115157 (2023) and 
+
+                             I. Timrov et al, Phys. Rev. B 98,  085127 (2018) 
+
+     =-----------------------------------------------------------------------------=
+
+     Reading xml data from directory:
+
+     ./out/Ni.save/
+
+     IMPORTANT: XC functional enforced from input :
+     Exchange-correlation= PBE
+                           (   1   4   3   4   0   0   0)
+     Any further DFT definition will be discarded
+     Please, verify this is what you really want
+
+ 
+     G-vector sticks info
+     --------------------
+     sticks:   dense  smooth     PW     G-vecs:    dense   smooth      PW
+     Sum         583     583    187                 9257     9257    1639
+ 
+     Using Slab Decomposition
+ 
+     Reading collected, re-writing distributed wavefunctions
+
+     Hubbard manifold selected in &INPUTHP (acbn0_ehub_l_choice)
+     (the pw.x run carried no HUBBARD card)
+       type  1:   3d
+       projectors: ortho-atomic     nwfcU =     5
+
+
+     ======================================================================
+     ACBN0 Hubbard parameters (acbn0 = 1)
+     pseudo-hybrid estimator - NOT linear response
+     ======================================================================
+
+     Hubbard manifold taken from MODULE ldaU:
+       type  1      Ni  l = 2
+       nwfcU =     5
+
+
+     Atomic wfc used for Hubbard projectors are orthogonalized
+
+
+     ACBN0 Hubbard parameters written to ./out/eACBN0_hub.dat
+
+     site n.  type  label  channel   U_ACBN0 (eV)
+         1      1       Ni    3d         16.4018
+ 
+     ACBN0 dumps (forked-code formats) written to ./out/Ni.save/
+       ehub_uv.txt  ehub_u0.txt  occupation_uv.txt  occupation_uv0.txt
+ 
+     PRINTING TIMING FROM PWSCF ROUTINES: 
+ 
+
+     Called by init_run:
+
+     Called by electrons:
+     v_of_rho     :      0.02s CPU      0.02s WALL (       1 calls)
+     v_h          :      0.00s CPU      0.00s WALL (       1 calls)
+     v_xc         :      0.02s CPU      0.02s WALL (       1 calls)
+
+     Called by c_bands:
+     init_us_2    :      0.00s CPU      0.00s WALL (       8 calls)
+     init_us_2:cp :      0.00s CPU      0.00s WALL (       8 calls)
+
+     Called by sum_band:
+
+     Called by *egterg:
+
+     Called by h_psi:
+
+     General routines
+     calbec       :      0.00s CPU      0.00s WALL (      16 calls)
+     fft          :      0.00s CPU      0.01s WALL (      19 calls)
+     davcio       :      0.00s CPU      0.00s WALL (      32 calls)
+ 
+     Parallel routines
+
+     Hubbard U routines
+ 
+     init_vloc    :      0.02s CPU      0.02s WALL (       1 calls)
+     init_us_1    :      0.01s CPU      0.01s WALL (       1 calls)
+ 
+     PRINTING TIMING FROM HP ROUTINES: 
+ 
+     hp_acbn0     :      1.23s CPU      1.25s WALL (       1 calls)
+     acbn0_ns_a0  :      1.22s CPU      1.23s WALL (       1 calls)
+ 
+     PRINTING TIMING FROM LR MODULE: 
+ 
+ 
+     HP           :      1.42s CPU      1.49s WALL
+
+ 
+   This run was terminated on:  17: 0: 1  30Oct2026            
+
+=------------------------------------------------------------------------------=
+   JOB DONE.
+=------------------------------------------------------------------------------=

@@ -1,0 +1,10 @@
+ &INPUTHP
+   prefix      = 'GaAs'
+   outdir      = './out'
+   acbn0       = 2
+   nn_distance = 3.0
+   acbn0_ehub_l_choice(1,1) = 1,   acbn0_ehub_l_choice(1,2) = 1
+   acbn0_ehub_l_choice(2,1) = 1,   acbn0_ehub_l_choice(2,2) = 1
+   acbn0_remove_ehub_u(1,1) = 0,   acbn0_remove_ehub_u(2,1) = 0
+   iverbosity  = 1
+ /

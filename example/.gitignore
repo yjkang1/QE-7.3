@@ -1,0 +1,2 @@
+# outputs are part of the example; override the top-level *.out rule
+!*.out

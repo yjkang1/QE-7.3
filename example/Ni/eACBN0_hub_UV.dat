@@ -1,0 +1,90 @@
+
+  ===============================================================================
+
+                        Hubbard parameters from eACBN0
+
+                        computed by hp.x  (acbn0 = 2)
+
+  ===============================================================================
+
+  prefix     : Ni
+  projectors : ortho-atomic
+  bookkeeping: MODULE ldaU (official QE) + own neighbour table
+  mixing     : 1.000  (one-shot; no SCF history)
+  neighbours : cutoff d_IJ =  3.000 A,  nnnc =   13
+  estimator  : pseudo-hybrid eACBN0 ratio, NOT linear response
+
+  -------------------------------------------------------------------------------
+  On-site U   = hub_v[na, na, m1, m2, cell 0]
+  -------------------------------------------------------------------------------
+
+    site n.  type  label  channel   occupation    U (eV)
+    (one row per channel; occupation and U of that channel only)
+        1      1       Ni    3d         8.8346       16.4018
+
+  -------------------------------------------------------------------------------
+  Inter-site V
+  -------------------------------------------------------------------------------
+
+    na1  type1     na2  type2      cell [n1 n2 n3]    d (A)    block      V (eV)
+    (one row per (channel of na1, channel of na2) block; V is constant inside a block)
+      1      Ni      1      Ni    [ -1  0  0 ]     2.4247   3d-3d        2.5890
+      1      Ni      1      Ni    [ -1  0  1 ]     2.4247   3d-3d        2.5890
+      1      Ni      1      Ni    [ -1  1  0 ]     2.4247   3d-3d        2.5890
+      1      Ni      1      Ni    [  0 -1  0 ]     2.4247   3d-3d        2.5890
+      1      Ni      1      Ni    [  0 -1  1 ]     2.4247   3d-3d        2.5890
+      1      Ni      1      Ni    [  0  0 -1 ]     2.4247   3d-3d        2.5890
+      1      Ni      1      Ni    [  0  0  1 ]     2.4247   3d-3d        2.5890
+      1      Ni      1      Ni    [  0  1 -1 ]     2.4247   3d-3d        2.5890
+      1      Ni      1      Ni    [  0  1  0 ]     2.4247   3d-3d        2.5890
+      1      Ni      1      Ni    [  1 -1  0 ]     2.4247   3d-3d        2.5890
+      1      Ni      1      Ni    [  1  0 -1 ]     2.4247   3d-3d        2.5890
+      1      Ni      1      Ni    [  1  0  0 ]     2.4247   3d-3d        2.5890
+
+       12 pair(s) with |V| >  1.0E-08 Ry
+
+  -------------------------------------------------------------------------------
+  One-shot extended Hubbard energy  (NOT self-consistent, see below)
+  -------------------------------------------------------------------------------
+
+    on-site   (U)  :      0.616163765 Ry  =     8.383335 eV
+    inter-site (V) :     -0.016153149 Ry  =    -0.219775 eV
+    E(+U+V)        :      0.600010616 Ry  =     8.163560 eV
+
+    Evaluated with the one-shot U, V above and the occupations they were
+    computed from; U, V and the density are not mutually self-consistent,
+    so this is not a total-energy contribution.  It equals what the forked
+    pw.x prints as E(+U+V) on the first iteration of a run started from this
+    density with ehub_mixing = 1 (v_hubbard_v.f90).
+
+  -------------------------------------------------------------------------------
+  Full on-site U matrix  (eV)
+  -------------------------------------------------------------------------------
+
+    atom   1  type Ni   ( 5 x 5)
+         16.4018   16.4018   16.4018   16.4018   16.4018
+         16.4018   16.4018   16.4018   16.4018   16.4018
+         16.4018   16.4018   16.4018   16.4018   16.4018
+         16.4018   16.4018   16.4018   16.4018   16.4018
+         16.4018   16.4018   16.4018   16.4018   16.4018
+
+  -------------------------------------------------------------------------------
+  On-site occupation matrix  ns[na, m1, m2, spin]
+  -------------------------------------------------------------------------------
+
+    atom   1  type Ni  spin 1
+          0.9166   -0.0000   -0.0000    0.0000    0.0000
+         -0.0000    0.8614   -0.0000    0.0000    0.0000
+         -0.0000   -0.0000    0.8614    0.0000    0.0000
+          0.0000    0.0000    0.0000    0.9166   -0.0000
+          0.0000    0.0000    0.0000   -0.0000    0.8614
+
+    atom   1  type Ni  spin 2
+          0.9166   -0.0000   -0.0000    0.0000    0.0000
+         -0.0000    0.8614   -0.0000    0.0000    0.0000
+         -0.0000   -0.0000    0.8614    0.0000    0.0000
+          0.0000    0.0000    0.0000    0.9166   -0.0000
+          0.0000    0.0000    0.0000   -0.0000    0.8614
+
+  ===============================================================================
+
